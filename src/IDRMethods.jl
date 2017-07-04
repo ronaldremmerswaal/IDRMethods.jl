@@ -133,18 +133,18 @@ end
 function orthogonalize!{T}(G::Vector{Vector{T}}, g::AbstractArray{T, 1}, h::AbstractArray{T, 1}, s, k, permG)
   if k < s + 1
     alpha = Array{T}(k);
-    for l in s - k + 1 : s
+    @inbounds for l in s - k + 1 : s
       alpha[k - s + l] = vecdot(G[permG[l]], g);
       @blas! g -= alpha[k - s + l] * G[permG[l]];
     end
-    h[s + 1 - k + 1 : s + 1] += alpha;  # TODO doesn't work with @blas!
+    h[s + 1 - k + 1 : s + 1] += alpha;
   end
   h[s + 2] = norm(g);
   @blas! g *= 1 / h[s + 2];
 end
 
 function applyGivensRot!(r, sine, cosine, iter, s)
-  @fastmath @inbounds for l = max(1, s + 3 - iter) : s + 1
+  @inbounds for l = max(1, s + 3 - iter) : s + 1
     oldRl = r[l];
     r[l] = cosine[l] * oldRl + sine[l] * r[l + 1];
     r[l + 1] = -conj(sine[l]) * oldRl + cosine[l] * r[l + 1];
@@ -183,7 +183,7 @@ end
 
 @inline function *{T}(V::Vector{Vector{T}}, gamma::Vector{T})
   v = zeros(V[1]);
-  for (idx, gam) in enumerate(gamma)
+  @inbounds for (idx, gam) in enumerate(gamma)
     @blas! v += gam * V[idx];
   end
   return v;
@@ -191,10 +191,8 @@ end
 
 @inline function innerProducts{T}(R::Array{T}, V::Vector{Vector{T}})
   M = zeros(T, size(R, 2), size(V, 1));
-  for idx = 1 : size(M, 1)
-    for (jdx, v) = enumerate(V)
-      M[idx, jdx] = vecdot(R[:, idx], v);
-    end
+  @inbounds for (jdx, v) = enumerate(V)
+    M[:, jdx] = BLAS.gemv('C', 1.0, R, v);
   end
   return M;
 end
