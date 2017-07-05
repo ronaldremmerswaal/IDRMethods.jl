@@ -5,194 +5,207 @@ export fqmrIDRs
 using SugarBLAS
 import Base.*
 
-function fqmrIDRs{T}(A, b::AbstractArray{T, 1}; s::Integer = 8, tol::AbstractFloat = 1E-6, maxIt::Integer = size(b, 1))
+type Projector
+  j::Integer
+  mu
+  M::Matrix
+  R0::Matrix
+  u
+  m
 
-  n = size(b, 1);
-  s = min(n, s);
+  Projector(n, s, T) = new(0, zero(T), Matrix{T}(s, s), Matrix{T}(n, s), Vector{T}(s), Vector{T}(n))
+end
 
-  # Allocate memory (size n)
-  g = copy(b);
-  x = zeros(b);
-  w = zeros(b);
-  v = zeros(b);
+type Hessenberg
+  n::Integer
+  s::Integer
+  r
+  h
+  cosine
+  sine
 
-  # (size s)
-  cosine = zeros(T, s + 2);
-  sine = zeros(T, s + 2);
-  u = zeros(T, s + 2);
-  h = zeros(T, s + 2);
-  r = zeros(T, s + 3);
-  m = zeros(T, s);
-  M = Array{T}(s, s);
+  Hessenberg(n, s, T) = new(n, s, zeros(T, s + 3), zeros(T, s + 2), zeros(T, s + 2), zeros(T, s + 2))
+end
 
-  # (size n x s)
-  G = Vector{Vector{T}}(s);
-  W = Vector{Vector{T}}(s + 1);
-  R0 = Array{T}(n, s);
+type Arnoldi
+  A
+  permG
+  G::Matrix
+  W::Matrix
+  g
+  n::Integer
+  s::Integer
+  last::Integer
+  v           # last projected orthogonal to R0
+  vhat
 
-  j = 0;
-  mu = 0.;
-  iter = 0;
-  stopped = false;
-  rho = zeros(T, maxIt + 1);
-  rho[1] = vecnorm(g);
-  tol *= rho[1];
-  phi = 0.;
-  phihat = rho[1];
+  alpha
 
-  @blas! g *= 1 / rho[1];
+  # TODO how many n-vectors do we need? (g, v, vhat)
+  Arnoldi(A, r0, n, s) = new(A, [1 : s...], Matrix{eltype(r0)}(n, s), Matrix{eltype(r0)}(n, s + 1), Vector{eltype(r0)}(n), n, s, 0, Vector{eltype(r0)}(n), Vector{eltype(r0)}(n), Vector{eltype(r0)}(s))
+end
 
-  # Column permutations
-  permG = [1 : s...];
+type Solution
+  x
+  phihat
+  rho
+  rho0
+  tol
+
+  Solution(x, rho, tol) = new(x, rho, rho, rho, tol)
+end
+
+
+function fqmrIDRs(A, b; s::Integer = 8, tol = 1E-6, maxIt::Integer = size(b, 1), x0 = zeros(b))
+
+  # TODO skip if x0 = 0
+  r0 = b - A * x0
+  hessenberg = Hessenberg(size(b, 1), s, eltype(b))
+  arnoldi = Arnoldi(A, r0, size(b, 1), s)
+  solution = Solution(x0, vecnorm(r0), tol)
+  projector = Projector(size(b, 1), s, eltype(b))
+
+  iter = 0
+  stopped = false
 
   while !stopped
-    @inbounds for k in 1 : s + 1
-      # Generate s vectors in G_j
-      iter += 1;
-      u[1 : s + 2] = 0.;
-      u[s + 1] = 1.;
+    for k in 1 : s + 1
+      iter += 1
 
       if iter == s + 1
-        # Compute R0 only when needed, hence if we are about to enter j = 1
-        R0 = qr(rand(T, n, s))[1];
-        M = innerProducts(R0, G);
+        initialize!(projector, arnoldi)
       end
 
-      if iter <= s
-        # Initialization: construct Arnoldi basis
-        @blas! v = g;
-      else
-        # Project orthogonal to R0
-        m = BLAS.gemv('C', 1.0, R0, g);
-        gamma = M \ m;
-        v = g - G * gamma;
-        u[1 : s] = -gamma[permG];
-      end
-      # Permute the columns
-      cosine[1 : s + 1] = cosine[2 : s + 2];
-      sine[1 : s + 1] = sine[2 : s + 2];
-
-      pGEnd = permG[1];
-      permG[1 : s - 1] = permG[2 : s];
-      permG[s] = pGEnd;
-
-      # Add new vectors
-      G[permG[end]] = copy(g);
-      W[k] = w;
       if iter > s
-        M[:, permG[end]] = m;
+        apply!(projector, arnoldi)
       end
 
-      # TODO preconditioner
-      vhat = v;
-      g = A * vhat;
+      expand!(arnoldi)
 
-      if k == s + 1
-        j += 1;
-        # Compute mu for new space G_j
-        mu = computeMu(g, v);
-      end
-      if j > 0
-        @blas! g -= mu * v;
-      end
-      @blas! h = mu * u;
+      mapToIDRSpace(arnoldi, projector, k)
 
-      # Orthogonalize g with current vectors in G_j
-      orthogonalize!(G, g, h, s, k, permG);
+      orthogonalize!(arnoldi, hessenberg, k)
 
-      # Update the QR factorization of the Hessenberg matrix
-      r[1] = 0.;
-      r[2 : s + 3] = h;
-      applyGivensRot!(r, sine, cosine, iter, s);
+      update!(hessenberg, iter)
 
-      # Update the solution
-      phi = cosine[s + 2] * phihat;
-      phihat = -conj(sine[s + 2]) * phihat;
-      if iter > s
-        @blas! w = vhat - W * r[[s + 2 - k : s + 1; 1 : s + 1 - k]];
-      else
-        @blas! w = vhat - W * r[s + 2 - k : s + 1];
-      end
-      @blas! w *= 1. / r[s + 2];
-      @blas! x += phi * w;
+      update!(solution, arnoldi, hessenberg, projector, k, iter)
 
-      # Compute an upperbound for the residual norm
-      rho[iter + 1] = abs(phihat) * sqrt(j + 1.);
-      if rho[iter + 1] < tol || iter > maxIt
-        stopped = true;
-        break;
+      if isConverged(solution) || iter > maxIt
+        stopped = true
+        break
       end
     end
   end
 
-  return x, rho[1 : iter + 1]
+  return solution.x, solution.rho
 end
 
-function orthogonalize!{T}(G::Vector{Vector{T}}, g::AbstractArray{T, 1}, h::AbstractArray{T, 1}, s, k, permG)
-  if k < s + 1
-    alpha = Array{T}(k);
-    @inbounds for l in 1 : k
-      alpha[l] = vecdot(G[permG[s - k + l]], g);
-      @blas! g -= alpha[l] * G[permG[s - k + l]];
-    end
-    h[s + 1 - k + 1 : s + 1] += alpha;
-  end
-  h[s + 2] = vecnorm(g);
-  @blas! g *= 1 / h[s + 2];
+
+function apply!(p::Projector, a::Arnoldi)
+  a.v = copy(last(a))
+
+  p.m = BLAS.gemv('C', 1.0, p.R0, a.v)
+  p.u[1 : a.s] = p.M \ p.m
+  a.v -= a.G * p.u[1 : a.s]
+  p.u[1 : a.s] = -p.u[a.permG]
+  p.M[:, a.permG[end]] = p.m
 end
 
-function applyGivensRot!(r, sine, cosine, iter, s)
-  @inbounds for l = max(1, s + 3 - iter) : s + 1
-    oldRl = r[l];
-    r[l] = cosine[l] * oldRl + sine[l] * r[l + 1];
-    r[l + 1] = -conj(sine[l]) * oldRl + cosine[l] * r[l + 1];
-  end
 
-  a = r[s + 2];
-  b = r[s + 3];
-  if abs(a) < eps()
-    sine[s + 2] = 1.;
-    cosine[s + 2] = 0.;
-    r[s + 2] = b;
-  else
-    t = abs(a) + abs(b);
-    rho = t * sqrt(abs(a / t) ^ 2 + abs(b / t) ^ 2);
-    alpha = a / abs(a);
-
-    sine[s + 2] = alpha * conj(b) / rho;
-    cosine[s + 2] = abs(a) / rho;
-    r[s + 2] = alpha * rho;
-  end
+@inline function initialize!(p::Projector, a::Arnoldi)
+  p.R0, = qr(rand(eltype(a.G), a.n, a.s))
+  p.M = BLAS.gemm('C', 'N', 1.0, p.R0, a.G)
 end
 
-@inline function computeMu(t, v)
+function nextIDRSpace!(p::Projector, a::Arnoldi)
+  p.j += 1
+
   # Compute residual minimizing mu
-  kappa = 0.7;
-  tv = vecdot(t, v);
-  tt = vecdot(t, t);
+  tv = vecdot(last(a), a.v)
+  tt = vecdot(last(a), last(a))
 
-  omega = tv / tt;
-  rho = tv / (sqrt(tt) * vecnorm(v));
-  if abs(rho) < kappa
-    omega *= kappa / abs(rho);
+  p.mu = tv / tt
+  rho = tv / (sqrt(tt) * norm(a.v))
+  if abs(rho) < 0.7
+    p.mu *= 0.7 / abs(rho)
   end
-  return abs(omega) > eps() ? mu = 1. / omega : 1.;
 end
 
-@inline function *{T}(V::Vector{Vector{T}}, gamma::Vector{T})
-  v = zeros(V[1]);
-  @inbounds for (idx, gam) in enumerate(gamma)
-    @blas! v += gam * V[idx];
+
+# Updates the QR factorization of H
+function update!(hes::Hessenberg, iter)
+  hes.r[1] = 0.
+  hes.r[2 : end] = hes.h
+
+  @inbounds for l = max(1, hes.s + 3 - iter) : hes.s + 1
+    oldRl = hes.r[l]
+    hes.r[l] = hes.cosine[l] * oldRl + hes.sine[l] * hes.r[l + 1]
+    hes.r[l + 1] = -conj(hes.sine[l]) * oldRl + hes.cosine[l] * hes.r[l + 1]
   end
-  return v;
+
+  a = hes.r[end - 1]
+  b = hes.r[end]
+  if abs(a) < eps()
+    hes.sine[end] = 1.
+    hes.cosine[end] = 0.
+    hes.r[end - 1] = b
+  else
+    t = abs(a) + abs(b)
+    rho = t * sqrt(abs(a / t) ^ 2 + abs(b / t) ^ 2)
+    alpha = a / abs(a)
+
+    hes.sine[end] = alpha * conj(b) / rho
+    hes.cosine[end] = abs(a) / rho
+    hes.r[end - 1] = alpha * rho
+  end
 end
 
-@inline function innerProducts{T}(R::Array{T}, V::Vector{Vector{T}})
-  M = zeros(T, size(R, 2), size(V, 1));
-  @inbounds for (jdx, v) = enumerate(V)
-    M[:, jdx] = BLAS.gemv('C', 1.0, R, v);
+# TODO see if we can include g in G
+@inline last(a::Arnoldi) = a.g
+
+@inline function expand!(a::Arnoldi)
+  a.vhat = a.v  # TODO optional preconditioning
+  a.g = a.A * a.v
+end
+
+function orthogonalize!(a::Arnoldi, hes::Hessenberg, k)
+  if k < a.s + 1
+    @inbounds for l in 1 : k
+      a.alpha[l] = vecdot(view(a.G, :, a.permG[a.s - k + l]), a.g)
+      @blas! a.g -= a.alpha[l] * view(a.G, :, a.permG[a.s - k + l])
+    end
+    hes.h[a.s + 1 - k + 1 : a.s + 1] += view(a.alpha, 1 : k)
   end
-  return M;
+  hes.h[end] = vecnorm(a.g)
+  @blas! a.g *= 1 / hes.h[end]
+end
+
+function mapToIDRSpace(arnoldi::Arnoldi, projector::Projector, k)
+  if k == arnoldi.s + 1
+    nextIDRSpace!(projector, arnoldi)
+  end
+  if projector.j > 0
+    arnoldi.g -= projector.mu * arnoldi.v
+  end
+end
+
+@inline function isConverged(sol::Solution)
+  return sol.rho < sol.tol * sol.rho0
+end
+
+function update!(sol::Solution, a::Arnoldi, hes::Hessenberg, p::Projector, k, iter)
+  phi = hes.cosine[end] * sol.phihat
+  sol.phihat = -conj(hes.sine[end]) * sol.phihat
+  wIdx = k > a.s ? 1 : k + 1
+  if iter > a.s
+    a.W[:, wIdx] = a.vhat - a.W * view(hes.r, [a.s + 2 - k : a.s + 1; 1 : a.s + 1 - k])
+  else
+    a.W[:, wIdx] = a.vhat - view(a.W, :, 1 : k) * view(hes.r, a.s + 2 - k : a.s + 1)
+  end
+  @blas! a.W[:, wIdx] *= 1. / hes.r[end - 1]
+  @blas! sol.x += phi * view(a.W, :, wIdx)
+
+  sol.rho = abs(sol.phihat) * sqrt(p.j + 1.)
 end
 
 end
