@@ -26,8 +26,8 @@ function fqmrIDRs{T}(A, b::AbstractArray{T, 1}; s::Integer = 8, tol::AbstractFlo
   M = Array{T}(s, s);
 
   # (size n x s)
-  G = Vector{Vector{T}}(s);
-  W = Vector{Vector{T}}(s + 1);
+  G = Array{T}(n, s);
+  W = Array{T}(n, s + 1);
   R0 = Array{T}(n, s);
 
   j = 0;
@@ -55,7 +55,7 @@ function fqmrIDRs{T}(A, b::AbstractArray{T, 1}; s::Integer = 8, tol::AbstractFlo
       if iter == s + 1
         # Compute R0 only when needed, hence if we are about to enter j = 1
         R0 = qr(rand(T, n, s))[1];
-        M = innerProducts(R0, G);
+        M = BLAS.gemm('C', 'N', 1.0, R0, G);
       end
 
       if iter <= s
@@ -77,8 +77,8 @@ function fqmrIDRs{T}(A, b::AbstractArray{T, 1}; s::Integer = 8, tol::AbstractFlo
       permG[s] = pGEnd;
 
       # Add new vectors
-      G[permG[end]] = copy(g);
-      W[k] = w;
+      G[:, permG[end]] = g;
+      W[:, k] = w;
       if iter > s
         M[:, permG[end]] = m;
       end
@@ -109,9 +109,9 @@ function fqmrIDRs{T}(A, b::AbstractArray{T, 1}; s::Integer = 8, tol::AbstractFlo
       phi = cosine[s + 2] * phihat;
       phihat = -conj(sine[s + 2]) * phihat;
       if iter > s
-        w = vhat - W * r[[s + 2 - k : s + 1; 1 : s + 1 - k]];
+        @blas! w = vhat - W * r[[s + 2 - k : s + 1; 1 : s + 1 - k]];
       else
-        w = vhat - W * r[s + 2 - k : s + 1];
+        @blas! w = vhat - W[:, 1 : k] * r[s + 2 - k : s + 1];
       end
       @blas! w *= 1. / r[s + 2];
       @blas! x += phi * w;
@@ -128,12 +128,12 @@ function fqmrIDRs{T}(A, b::AbstractArray{T, 1}; s::Integer = 8, tol::AbstractFlo
   return x, rho[1 : iter + 1]
 end
 
-function orthogonalize!{T}(G::Vector{Vector{T}}, g::AbstractArray{T, 1}, h::AbstractArray{T, 1}, s, k, permG)
+function orthogonalize!{T}(G::Array{T, 2}, g::AbstractArray{T, 1}, h::AbstractArray{T, 1}, s, k, permG)
   if k < s + 1
     alpha = Array{T}(k);
     @inbounds for l in s - k + 1 : s
-      alpha[k - s + l] = vecdot(G[permG[l]], g);
-      @blas! g -= alpha[k - s + l] * G[permG[l]];
+      alpha[k - s + l] = vecdot(G[:, permG[l]], g);
+      @blas! g -= alpha[k - s + l] * G[:, permG[l]];
     end
     h[s + 1 - k + 1 : s + 1] += alpha;
   end
