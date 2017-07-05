@@ -34,14 +34,13 @@ function fqmrIDRs{T}(A, b::AbstractArray{T, 1}; s::Integer = 8, tol::AbstractFlo
   mu = 0.;
   iter = 0;
   stopped = false;
-  rho = norm(g);
-  tol *= rho;
+  rho = zeros(T, maxIt + 1);
+  rho[1] = vecnorm(g);
+  tol *= rho[1];
   phi = 0.;
-  phihat = rho;
-  resHist = zeros(T, maxIt + 1);
-  resHist[1] = rho;
+  phihat = rho[1];
 
-  @blas! g *= 1 / rho;
+  @blas! g *= 1 / rho[1];
 
   # Column permutations
   permG = [1 : s...];
@@ -61,10 +60,10 @@ function fqmrIDRs{T}(A, b::AbstractArray{T, 1}; s::Integer = 8, tol::AbstractFlo
 
       if iter <= s
         # Initialization: construct Arnoldi basis
-        v = copy(g);
+        @blas! v = g;
       else
         # Project orthogonal to R0
-        @blas! m = R0' * g;
+        m = BLAS.gemv('C', 1.0, R0, g);
         gamma = M \ m;
         v = g - G * gamma;
         u[1 : s] = -gamma[permG];
@@ -79,14 +78,14 @@ function fqmrIDRs{T}(A, b::AbstractArray{T, 1}; s::Integer = 8, tol::AbstractFlo
 
       # Add new vectors
       G[permG[end]] = copy(g);
-      W[k] = copy(w);
+      W[k] = w;
       if iter > s
         M[:, permG[end]] = m;
       end
 
       # TODO preconditioner
       vhat = v;
-      @blas! g = A * vhat;
+      g = A * vhat;
 
       if k == s + 1
         j += 1;
@@ -118,16 +117,15 @@ function fqmrIDRs{T}(A, b::AbstractArray{T, 1}; s::Integer = 8, tol::AbstractFlo
       @blas! x += phi * w;
 
       # Compute an upperbound for the residual norm
-      rho = abs(phihat) * sqrt(j + 1.);
-      resHist[iter + 1] = rho;
-      if rho < tol || iter > maxIt
+      rho[iter + 1] = abs(phihat) * sqrt(j + 1.);
+      if rho[iter + 1] < tol || iter > maxIt
         stopped = true;
         break;
       end
     end
   end
 
-  return x, resHist[1 : iter + 1]
+  return x, rho[1 : iter + 1]
 end
 
 function orthogonalize!{T}(G::Vector{Vector{T}}, g::AbstractArray{T, 1}, h::AbstractArray{T, 1}, s, k, permG)
@@ -139,7 +137,7 @@ function orthogonalize!{T}(G::Vector{Vector{T}}, g::AbstractArray{T, 1}, h::Abst
     end
     h[s + 1 - k + 1 : s + 1] += alpha;
   end
-  h[s + 2] = norm(g);
+  h[s + 2] = vecnorm(g);
   @blas! g *= 1 / h[s + 2];
 end
 
@@ -174,7 +172,7 @@ end
   tt = vecdot(t, t);
 
   omega = tv / tt;
-  rho = tv / (sqrt(tt) * norm(v));
+  rho = tv / (sqrt(tt) * vecnorm(v));
   if abs(rho) < kappa
     omega *= kappa / abs(rho);
   end
