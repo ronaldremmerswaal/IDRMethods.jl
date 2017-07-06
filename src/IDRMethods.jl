@@ -5,6 +5,8 @@ export fqmrIDRs
 using Base.BLAS
 using Base.LinAlg
 
+include("harmenView.jl")
+
 type Identity
 end
 type Preconditioner
@@ -50,7 +52,6 @@ type Arnoldi
 
   # TODO how many n-vectors do we need? (g, v, vhat)
   Arnoldi(A, P, g, n, s, T) = new(A, P, [1 : s...], Matrix{T}(n, s), Matrix{T}(n, s + 1), g, n, s, copy(g), Vector{T}(n), Vector{T}(s))
-  # TODO norm of r0 is computed 3 times now (also in Solution...)
 end
 
 type Solution
@@ -148,19 +149,19 @@ function nextIDRSpace!(proj::Projector, arnold::Arnoldi)
 end
 
 @inline function cycle!(hes::Hessenberg)
-  hes.cosine[1 : end - 1] = view(hes.cosine, 2 : hes.s + 2)
-  hes.sine[1 : end - 1] = view(hes.sine, 2 : hes.s + 2)
+  hes.cosine[1 : end - 1] = unsafe_view(hes.cosine, 2 : hes.s + 2)
+  hes.sine[1 : end - 1] = unsafe_view(hes.sine, 2 : hes.s + 2)
 end
 
 # Updates the QR factorization of H
 function update!(hes::Hessenberg, proj::Projector, iter)
-  axpy!(proj.mu, proj.u, view(hes.h, 1 : hes.s))
+  axpy!(proj.mu, proj.u, unsafe_view(hes.h, 1 : hes.s))
   hes.h[end - 1] += proj.mu
   hes.r[1] = 0.
   hes.r[2 : end] = hes.h
 
   # Apply previous Givens rotations to new column of h
-  @inbounds for l = max(1, hes.s + 3 - iter) : hes.s + 1
+  for l = max(1, hes.s + 3 - iter) : hes.s + 1
     oldRl = hes.r[l]
     hes.r[l] = hes.cosine[l] * oldRl + hes.sine[l] * hes.r[l + 1]
     hes.r[l + 1] = -conj(hes.sine[l]) * oldRl + hes.cosine[l] * hes.r[l + 1]
@@ -192,7 +193,7 @@ end
 
 @inline function cycle!(arnold::Arnoldi)
   pGEnd = arnold.permG[1]
-  arnold.permG[1 : end - 1] = view(arnold.permG, 2 : arnold.s)
+  arnold.permG[1 : end - 1] = unsafe_view(arnold.permG, 2 : arnold.s)
   arnold.permG[end] = pGEnd
 
   arnold.G[:, pGEnd] = arnold.g
@@ -214,11 +215,11 @@ function updateW!(arnold::Arnoldi, hes::Hessenberg, k, iter)
     # TODO make periodic iterator such that view can be used here on hes.r
     gemv!('N', -1.0, arnold.W, hes.r[[arnold.s + 2 - k : arnold.s + 1; 1 : arnold.s + 1 - k]], 1.0, arnold.vhat)
   else
-    gemv!('N', -1.0, view(arnold.W, :, 1 : k), hes.r[arnold.s + 2 - k : arnold.s + 1], 1.0, arnold.vhat)
+    gemv!('N', -1.0, unsafe_view(arnold.W, :, 1 : k), hes.r[arnold.s + 2 - k : arnold.s + 1], 1.0, arnold.vhat)
   end
   wIdx = k > arnold.s ? 1 : k + 1
-  copy!(view(arnold.W, :, wIdx), arnold.vhat)
-  scale!(view(arnold.W, :, wIdx), 1 / hes.r[end - 1])
+  copy!(unsafe_view(arnold.W, :, wIdx), arnold.vhat)
+  scale!(unsafe_view(arnold.W, :, wIdx), 1 / hes.r[end - 1])
 end
 
 function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
@@ -226,10 +227,10 @@ function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
   hes.h[:] = 0.
   if k < arnold.s + 1
     for l in 1 : k
-      arnold.alpha[l] = vecdot(view(arnold.G, :, arnold.permG[arnold.s - k + l]), arnold.g)
-      axpy!(-arnold.alpha[l], view(arnold.G, :, arnold.permG[arnold.s - k + l]), arnold.g)
+      arnold.alpha[l] = vecdot(unsafe_view(arnold.G, :, arnold.permG[arnold.s - k + l]), arnold.g)
+      axpy!(-arnold.alpha[l], unsafe_view(arnold.G, :, arnold.permG[arnold.s - k + l]), arnold.g)
     end
-    hes.h[arnold.s + 2 - k : arnold.s + 1] = view(arnold.alpha, 1 : k)
+    hes.h[arnold.s + 2 - k : arnold.s + 1] = unsafe_view(arnold.alpha, 1 : k)
   end
   hes.h[end] = vecnorm(arnold.g)
   scale!(arnold.g, 1 / hes.h[end])
@@ -249,7 +250,7 @@ end
 
 function update!(sol::Solution, arnold::Arnoldi, hes::Hessenberg, proj::Projector, k)
   wIdx = k > arnold.s ? 1 : k + 1
-  axpy!(hes.phi, view(arnold.W, :, wIdx), sol.x)
+  axpy!(hes.phi, unsafe_view(arnold.W, :, wIdx), sol.x)
 
   sol.rho = abs(hes.phihat) * sqrt(proj.j + 1.)
 end
