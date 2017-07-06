@@ -18,7 +18,7 @@ type Projector
   u
   m
 
-  Projector(n, s, T) = new(0, zero(T), Matrix{T}(s, s), Matrix{T}(n, s), zeros(T, s), Vector{T}(s))
+  Projector(n, s, T) = new(0, zero(T), zeros(T, s, s), Matrix{T}(n, s), zeros(T, s), Vector{T}(s))
 end
 
 type Hessenberg
@@ -94,11 +94,14 @@ function fqmrIDRs(A, b; s::Integer = 8, tol = 1E-6, maxIt::Integer = size(b, 1),
 
       expand!(arnoldi)
 
-      mapToIDRSpace(arnoldi, hessenberg, projector, k)
+      if k == s + 1
+        nextIDRSpace!(projector, arnoldi)
+      end
+      mapToIDRSpace!(arnoldi, projector, k)
 
-      orthogonalize!(arnoldi, hessenberg, k)
+      updateG!(arnoldi, hessenberg, k)
       update!(hessenberg, projector, iter)
-      update!(arnoldi, hessenberg, k, iter)
+      updateW!(arnoldi, hessenberg, k, iter)
 
       update!(solution, arnoldi, hessenberg, projector, k)
       if isConverged(solution) || iter == maxIt
@@ -113,8 +116,8 @@ end
 
 
 function apply!(proj::Projector, arnold::Arnoldi)
-  proj.m = gemv('C', 1.0, proj.R0, arnold.v)
-  proj.u = proj.M \ proj.m
+  gemv!('C', 1.0, proj.R0, arnold.v, 0.0, proj.m)
+  proj.u = proj.M \ proj.m  # TODO in-place?
   gemv!('N', -1.0, arnold.G, proj.u, 1.0, arnold.v)
   proj.u = -proj.u[arnold.permG]
   proj.M[:, arnold.permG[1]] = proj.m
@@ -124,15 +127,15 @@ end
 @inline function initialize!(proj::Projector, arnold::Arnoldi)
   # TODO replace by in-place orth?
   proj.R0, = qr(rand(eltype(arnold.G), arnold.n, arnold.s))
-  proj.M = gemm('C', 'N', 1.0, proj.R0, arnold.G)
+  gemm!('C', 'N', 1.0, proj.R0, arnold.G, 1.0, proj.M)
 end
 
 function nextIDRSpace!(proj::Projector, arnold::Arnoldi)
   proj.j += 1
 
   # Compute residual minimizing mu
-  tv = vecdot(last(arnold), arnold.v)
-  tt = vecdot(last(arnold), last(arnold))
+  tv = vecdot(arnold.g, arnold.v)
+  tt = vecdot(arnold.g, arnold.g)
 
   omega = tv / tt
   rho = tv / (sqrt(tt) * norm(arnold.v))
@@ -143,8 +146,8 @@ function nextIDRSpace!(proj::Projector, arnold::Arnoldi)
 end
 
 @inline function cycle!(hes::Hessenberg)
-  hes.cosine[1 : end - 1] = hes.cosine[2 : end]
-  hes.sine[1 : end - 1] = hes.sine[2 : end]
+  hes.cosine[1 : end - 1] = view(hes.cosine, 2 : hes.s + 2)
+  hes.sine[1 : end - 1] = view(hes.sine, 2 : hes.s + 2)
 end
 
 # Updates the QR factorization of H
@@ -187,13 +190,13 @@ end
 
 @inline function cycle!(arnold::Arnoldi)
   pGEnd = arnold.permG[1]
-  arnold.permG[1 : end - 1] = arnold.permG[2 : end]
+  arnold.permG[1 : end - 1] = view(arnold.permG, 2 : arnold.s)
   arnold.permG[end] = pGEnd
 
   arnold.G[:, pGEnd] = arnold.g
 end
 
-@inline evalPrecon(P::Identity, v) = copy(v) # TODO is copy needed here?
+@inline evalPrecon(P::Identity, v) = copy(v)
 @inline evalPrecon(P::Preconditioner, v) = P \ v
 
 @inline function expand!(arnold::Arnoldi)
@@ -201,7 +204,7 @@ end
   A_mul_B!(arnold.g, arnold.A, arnold.vhat)
 end
 
-function update!(arnold::Arnoldi, hes::Hessenberg, k, iter)
+function updateW!(arnold::Arnoldi, hes::Hessenberg, k, iter)
   if iter > arnold.s
     # TODO make periodic iterator such that view can be used here on hes.r
     gemv!('N', -1.0, arnold.W, hes.r[[arnold.s + 2 - k : arnold.s + 1; 1 : arnold.s + 1 - k]], 1.0, arnold.vhat)
@@ -212,7 +215,7 @@ function update!(arnold::Arnoldi, hes::Hessenberg, k, iter)
   arnold.W[:, wIdx] = arnold.vhat / hes.r[end - 1]
 end
 
-function orthogonalize!(arnold::Arnoldi, hes::Hessenberg, k)
+function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
   # TODO (repeated) CGS?
   hes.h[:] = 0.
   if k < arnold.s + 1
@@ -224,13 +227,10 @@ function orthogonalize!(arnold::Arnoldi, hes::Hessenberg, k)
   end
   hes.h[end] = vecnorm(arnold.g)
   scale!(arnold.g, 1 / hes.h[end])
-  arnold.v = copy(last(arnold)) # TODO is this needed?
+  arnold.v = copy(arnold.g) # TODO is this needed?
 end
 
-function mapToIDRSpace(arnold::Arnoldi, hes::Hessenberg, proj::Projector, k)
-  if k == arnold.s + 1
-    nextIDRSpace!(proj, arnold)
-  end
+@inline function mapToIDRSpace!(arnold::Arnoldi, proj::Projector, k)
   if proj.j > 0
     axpy!(-proj.mu, arnold.v, arnold.g);
   end
