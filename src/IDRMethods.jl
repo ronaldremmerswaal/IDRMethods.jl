@@ -11,10 +11,10 @@ type Preconditioner
 end
 
 type Projector
-  j::Integer
+  j
   mu
-  M::Matrix
-  R0::Matrix
+  M
+  R0
   u
   m
 
@@ -22,8 +22,8 @@ type Projector
 end
 
 type Hessenberg
-  n::Integer
-  s::Integer
+  n
+  s
   r
   h
   cosine
@@ -38,18 +38,18 @@ type Arnoldi
   A
   P
   permG
-  G::Matrix
-  W::Matrix
+  G
+  W
   g
-  n::Integer
-  s::Integer
+  n
+  s
   v           # last projected orthogonal to R0
   vhat
 
   alpha
 
   # TODO how many n-vectors do we need? (g, v, vhat)
-  Arnoldi(A, P, g, n, s) = new(A, P, [1 : s...], Matrix{eltype(g)}(n, s), Matrix{eltype(g)}(n, s + 1), g, n, s, g, Vector{eltype(g)}(n), Vector{eltype(g)}(s))
+  Arnoldi(A, P, g, n, s, T) = new(A, P, [1 : s...], Matrix{T}(n, s), Matrix{T}(n, s + 1), g, n, s, copy(g), Vector{T}(n), Vector{T}(s))
   # TODO norm of r0 is computed 3 times now (also in Solution...)
 end
 
@@ -63,14 +63,14 @@ type Solution
 end
 
 
-function fqmrIDRs(A, b; s::Integer = 8, tol = 1E-6, maxIt::Integer = size(b, 1), x0 = zeros(b), P = Identity())
+function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = zeros(b), P = Identity())
 
   # TODO skip if x0 = 0
   r0 = b - A * x0
   rho0 = vecnorm(r0)
   hessenberg = Hessenberg(size(b, 1), s, eltype(b), rho0)
-  arnoldi = Arnoldi(A, P, r0 / rho0, size(b, 1), s)
-  arnoldi.W[:, 1] = zeros(b) # TODO put inside arnoldi constructor
+  arnoldi = Arnoldi(A, P, r0 / rho0, size(b, 1), s, eltype(b))
+  arnoldi.W[:, 1] = 0. # TODO put inside arnoldi constructor
   solution = Solution(x0, rho0, tol)
   projector = Projector(size(b, 1), s, eltype(b))
 
@@ -117,16 +117,18 @@ end
 
 function apply!(proj::Projector, arnold::Arnoldi)
   gemv!('C', 1.0, proj.R0, arnold.v, 0.0, proj.m)
-  proj.u = proj.M \ proj.m  # TODO in-place?
+  lu = lufact(proj.M)
+  A_ldiv_B!(proj.u, lu, proj.m)
   gemv!('N', -1.0, arnold.G, proj.u, 1.0, arnold.v)
-  proj.u = -proj.u[arnold.permG]
+  proj.u = -view(proj.u, arnold.permG)
   proj.M[:, arnold.permG[1]] = proj.m
 end
 
 
 @inline function initialize!(proj::Projector, arnold::Arnoldi)
   # TODO replace by in-place orth?
-  proj.R0, = qr(rand(eltype(arnold.G), arnold.n, arnold.s))
+  rand!(proj.R0)
+  qrfact!(proj.R0)
   gemm!('C', 'N', 1.0, proj.R0, arnold.G, 1.0, proj.M)
 end
 
@@ -196,11 +198,14 @@ end
   arnold.G[:, pGEnd] = arnold.g
 end
 
-@inline evalPrecon(P::Identity, v) = copy(v)
-@inline evalPrecon(P::Preconditioner, v) = P \ v
+@inline evalPrecon!(P::Identity, v) =
+@inline function evalPrecon!(P::Preconditioner, v)
+  v = P \ v
+end
 
 @inline function expand!(arnold::Arnoldi)
-  arnold.vhat = evalPrecon(arnold.P, arnold.v)
+  copy!(arnold.vhat, arnold.v)
+  evalPrecon!(arnold.P, arnold.vhat)
   A_mul_B!(arnold.g, arnold.A, arnold.vhat)
 end
 
@@ -212,7 +217,8 @@ function updateW!(arnold::Arnoldi, hes::Hessenberg, k, iter)
     gemv!('N', -1.0, view(arnold.W, :, 1 : k), view(hes.r, arnold.s + 2 - k : arnold.s + 1), 1.0, arnold.vhat)
   end
   wIdx = k > arnold.s ? 1 : k + 1
-  arnold.W[:, wIdx] = arnold.vhat / hes.r[end - 1]
+  copy!(view(arnold.W, :, wIdx), arnold.vhat)
+  scale!(view(arnold.W, :, wIdx), 1 / hes.r[end - 1])
 end
 
 function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
@@ -227,7 +233,8 @@ function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
   end
   hes.h[end] = vecnorm(arnold.g)
   scale!(arnold.g, 1 / hes.h[end])
-  arnold.v = copy(arnold.g) # TODO is this needed?
+  copy!(arnold.v, arnold.g)
+
 end
 
 @inline function mapToIDRSpace!(arnold::Arnoldi, proj::Projector, k)
