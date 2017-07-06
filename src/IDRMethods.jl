@@ -123,7 +123,7 @@ end
 
 @inline function initialize!(proj::Projector, arnold::Arnoldi)
   # TODO replace by in-place orth?
-  proj.R0, = qr(ones(eltype(arnold.G), arnold.n, arnold.s))
+  proj.R0, = qr(rand(eltype(arnold.G), arnold.n, arnold.s))
   proj.M = gemm('C', 'N', 1.0, proj.R0, arnold.G)
 end
 
