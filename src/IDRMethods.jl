@@ -50,8 +50,9 @@ type Arnoldi
   alpha
   lastIdx
 
+  ipermG
   # TODO how many n-vectors do we need? (g, v, vhat)
-  Arnoldi(A, P, g, n, s, T) = new(A, P, [1 : s...], Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), Vector{T}(s), 1)
+  Arnoldi(A, P, g, n, s, T) = new(A, P, [1 : s...], Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), Vector{T}(s), 1, [s : -1 : 1...])
 end
 
 type Solution
@@ -125,9 +126,10 @@ function apply!(proj::Projector, arnold::Arnoldi)
   gemv!('C', 1.0, proj.R0, arnold.v, 0.0, proj.m)
   lu = lufact(proj.M)
   A_ldiv_B!(proj.u, lu, proj.m)
-  gemv!('N', 1.0, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), unsafe_view(proj.u, 1 : arnold.lastIdx - 1), 1.0, arnold.v)
-  gemv!('N', 1.0, unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), unsafe_view(proj.u, arnold.lastIdx + 1 : arnold.s + 1), 1.0, arnold.v)
-  proj.u = -view(proj.u, arnold.permG)
+  proj.u = proj.u[arnold.permG]
+  println(arnold.lastIdx)
+  gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), unsafe_view(proj.u, 1 : arnold.lastIdx - 1), 1.0, arnold.v)
+  gemv!('N', -1.0, unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), unsafe_view(proj.u, arnold.lastIdx + 1 : arnold.s + 1), 1.0, arnold.v)
   proj.M[:, arnold.permG[1]] = proj.m
 end
 
@@ -161,7 +163,7 @@ end
 
 # Updates the QR factorization of H
 function update!(hes::Hessenberg, proj::Projector, iter)
-  axpy!(proj.mu, proj.u, unsafe_view(hes.h, 1 : hes.s))
+  axpy!(-proj.mu, proj.u, unsafe_view(hes.h, 1 : hes.s))
   hes.h[end - 1] += proj.mu
   hes.r[1] = 0.
   hes.r[2 : end] = hes.h
@@ -198,6 +200,10 @@ end
   pGEnd = arnold.permG[1]
   arnold.permG[1 : end - 1] = unsafe_view(arnold.permG, 2 : arnold.s)
   arnold.permG[end] = pGEnd
+
+  pGBegin = arnold.ipermG[end]
+  arnold.ipermG[2 : end] = unsafe_view(arnold.ipermG, 1 : arnold.s - 1)
+  arnold.ipermG[1] = pGBegin
 end
 
 @inline evalPrecon!(P::Identity, v) =
@@ -229,10 +235,14 @@ function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
   hes.h[:] = 0.
   aIdx = arnold.lastIdx
   if k < arnold.s + 1
-    for l in 1 : k
-      arnold.alpha[l] = vecdot(unsafe_view(arnold.G, :, l), unsafe_view(arnold.G, :, aIdx))
-      axpy!(-arnold.alpha[l], unsafe_view(arnold.G, :, l), unsafe_view(arnold.G, :, aIdx))
-    end
+    # for l in 1 : k
+    #   arnold.alpha[l] = vecdot(unsafe_view(arnold.G, :, l), unsafe_view(arnold.G, :, aIdx))
+    #   axpy!(-arnold.alpha[l], unsafe_view(arnold.G, :, l), unsafe_view(arnold.G, :, aIdx))
+    # end
+
+    gemv!('C', 1.0, unsafe_view(arnold.G, :, 1 : k), unsafe_view(arnold.G, :, aIdx), 0.0, unsafe_view(arnold.alpha, 1 : k))
+    gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : k), unsafe_view(arnold.alpha, 1 : k), 1.0, unsafe_view(arnold.G, :, aIdx))
+
     hes.h[arnold.s + 2 - k : arnold.s + 1] = unsafe_view(arnold.alpha, 1 : k)
   end
   hes.h[end] = vecnorm(unsafe_view(arnold.G, :, aIdx))
