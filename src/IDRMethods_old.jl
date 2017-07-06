@@ -62,7 +62,7 @@ function fqmrIDRs(A, b; s::Integer = 8, tol = 1E-6, maxIt::Integer = size(b, 1))
       v = copy(g)
       if iter > s
         # Project orthogonal to R0
-        @blas! m = R0' * g
+        m = R0' * v
         u[1 : s] = M \ m
         v -= G * u[1 : s]
         u[1 : s] = -u[permG]
@@ -91,7 +91,7 @@ function fqmrIDRs(A, b; s::Integer = 8, tol = 1E-6, maxIt::Integer = size(b, 1))
       if j > 0
         @blas! g -= mu * v
       end
-      @blas! h = mu * u
+      h = mu * u
 
       # Orthogonalize g with current vectors in G_j
       orthogonalize!(G, g, h, s, k, permG)
@@ -111,7 +111,6 @@ function fqmrIDRs(A, b; s::Integer = 8, tol = 1E-6, maxIt::Integer = size(b, 1))
       end
       W[:, k > s ? 1 : k + 1] = vhat / r[s + 2]
       x += phi * W[:, k > s ? 1 : k + 1]
-
       # Compute an upperbound for the residual norm
       rho = abs(phihat) * sqrt(j + 1.)
       resHist[iter + 1] = rho

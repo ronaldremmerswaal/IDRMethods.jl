@@ -7,6 +7,8 @@ using Base.LinAlg
 
 type Identity
 end
+type Preconditioner
+end
 
 type Projector
   j::Integer
@@ -99,7 +101,6 @@ function fqmrIDRs(A, b; s::Integer = 8, tol = 1E-6, maxIt::Integer = size(b, 1),
       update!(arnoldi, hessenberg, k, iter)
 
       update!(solution, arnoldi, hessenberg, projector, k)
-
       if isConverged(solution) || iter == maxIt
         stopped = true
         break
@@ -122,7 +123,7 @@ end
 
 @inline function initialize!(proj::Projector, arnold::Arnoldi)
   # TODO replace by in-place orth?
-  proj.R0, = qr(rand(eltype(arnold.G), arnold.n, arnold.s))
+  proj.R0, = qr(ones(eltype(arnold.G), arnold.n, arnold.s))
   proj.M = gemm('C', 'N', 1.0, proj.R0, arnold.G)
 end
 
@@ -147,10 +148,9 @@ end
 end
 
 # Updates the QR factorization of H
-function update!(hes::Hessenberg, projector, iter)
-  axpy!(projector.mu, projector.u, hes.h[1 : end - 2])
-  hes.h[end - 1] += projector.mu
-
+function update!(hes::Hessenberg, proj::Projector, iter)
+  axpy!(proj.mu, proj.u, view(hes.h, 1 : hes.s))
+  hes.h[end - 1] += proj.mu
   hes.r[1] = 0.
   hes.r[2 : end] = hes.h
 
@@ -193,17 +193,13 @@ end
   arnold.G[:, pGEnd] = arnold.g
 end
 
-@inline evalPrecon!(P::Identity, v) = copy(v)
+@inline evalPrecon(P::Identity, v) = copy(v) # TODO is copy needed here?
+@inline evalPrecon(P::Preconditioner, v) = P \ v
 
 @inline function expand!(arnold::Arnoldi)
-
-  arnold.vhat = evalPrecon!(arnold.P, arnold.v)
+  arnold.vhat = evalPrecon(arnold.P, arnold.v)
   A_mul_B!(arnold.g, arnold.A, arnold.vhat)
 end
-
-# function expand!(arnold::Arnoldi, P::Identity)
-#
-# end
 
 function update!(arnold::Arnoldi, hes::Hessenberg, k, iter)
   if iter > arnold.s
@@ -218,7 +214,7 @@ end
 
 function orthogonalize!(arnold::Arnoldi, hes::Hessenberg, k)
   # TODO (repeated) CGS?
-  hes.h[1 : arnold.s + 1 - k] = 0.
+  hes.h[:] = 0.
   if k < arnold.s + 1
     @inbounds for l in 1 : k
       arnold.alpha[l] = vecdot(view(arnold.G, :, arnold.permG[arnold.s - k + l]), arnold.g)
@@ -231,12 +227,12 @@ function orthogonalize!(arnold::Arnoldi, hes::Hessenberg, k)
   arnold.v = copy(last(arnold)) # TODO is this needed?
 end
 
-function mapToIDRSpace(arnoldi::Arnoldi, hes::Hessenberg, projector::Projector, k)
-  if k == arnoldi.s + 1
-    nextIDRSpace!(projector, arnoldi)
+function mapToIDRSpace(arnold::Arnoldi, hes::Hessenberg, proj::Projector, k)
+  if k == arnold.s + 1
+    nextIDRSpace!(proj, arnold)
   end
-  if projector.j > 0
-    axpy!(-projector.mu, arnoldi.v, arnoldi.g);
+  if proj.j > 0
+    axpy!(-proj.mu, arnold.v, arnold.g);
   end
 end
 
