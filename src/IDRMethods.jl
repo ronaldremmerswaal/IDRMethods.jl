@@ -214,7 +214,7 @@ function updateW!(arnold::Arnoldi, hes::Hessenberg, k, iter)
     # TODO make periodic iterator such that view can be used here on hes.r
     gemv!('N', -1.0, arnold.W, hes.r[[arnold.s + 2 - k : arnold.s + 1; 1 : arnold.s + 1 - k]], 1.0, arnold.vhat)
   else
-    gemv!('N', -1.0, view(arnold.W, :, 1 : k), view(hes.r, arnold.s + 2 - k : arnold.s + 1), 1.0, arnold.vhat)
+    gemv!('N', -1.0, view(arnold.W, :, 1 : k), hes.r[arnold.s + 2 - k : arnold.s + 1], 1.0, arnold.vhat)
   end
   wIdx = k > arnold.s ? 1 : k + 1
   copy!(view(arnold.W, :, wIdx), arnold.vhat)
@@ -225,7 +225,7 @@ function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
   # TODO (repeated) CGS?
   hes.h[:] = 0.
   if k < arnold.s + 1
-    @inbounds for l in 1 : k
+    for l in 1 : k
       arnold.alpha[l] = vecdot(view(arnold.G, :, arnold.permG[arnold.s - k + l]), arnold.g)
       axpy!(-arnold.alpha[l], view(arnold.G, :, arnold.permG[arnold.s - k + l]), arnold.g)
     end
