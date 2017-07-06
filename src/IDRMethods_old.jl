@@ -27,7 +27,7 @@ function fqmrIDRs(A, b; s::Integer = 8, tol = 1E-6, maxIt::Integer = size(b, 1))
 
   # (size n x s)
   G = Array{eltype(b)}(n, s);
-  W = Array{eltype(b)}(n, s + 1);
+  W = zeros(eltype(b), n, s + 1);
   R0 = Array{eltype(b)}(n, s)
 
   j = 0
@@ -63,9 +63,9 @@ function fqmrIDRs(A, b; s::Integer = 8, tol = 1E-6, maxIt::Integer = size(b, 1))
       if iter > s
         # Project orthogonal to R0
         @blas! m = R0' * g
-        gamma = M \ m
-        v = g - G * gamma
-        u[1 : s] = -gamma[permG]
+        u[1 : s] = M \ m
+        v -= G * u[1 : s]
+        u[1 : s] = -u[permG]
         M[:, permG[1]] = m
       end
       # Permute the columns
@@ -78,7 +78,6 @@ function fqmrIDRs(A, b; s::Integer = 8, tol = 1E-6, maxIt::Integer = size(b, 1))
 
       # Add new vectors
       G[:, permG[s]] = g
-      W[:, k] = w
 
       # TODO preconditioner
       vhat = v
@@ -106,12 +105,12 @@ function fqmrIDRs(A, b; s::Integer = 8, tol = 1E-6, maxIt::Integer = size(b, 1))
       phi = cosine[s + 2] * phihat
       phihat = -conj(sine[s + 2]) * phihat
       if iter > s
-        w = vhat - W * r[[s + 2 - k : s + 1; 1 : s + 1 - k]]
+        vhat -= W * r[[s + 2 - k : s + 1; 1 : s + 1 - k]]
       else
-        w = vhat - view(W, :, 1 : k) * r[s + 2 - k : s + 1]
+        vhat -= view(W, :, 1 : k) * r[s + 2 - k : s + 1]
       end
-      @blas! w *= 1. / r[s + 2]
-      @blas! x += phi * w
+      W[:, k > s ? 1 : k + 1] = vhat / r[s + 2]
+      x += phi * W[:, k > s ? 1 : k + 1]
 
       # Compute an upperbound for the residual norm
       rho = abs(phihat) * sqrt(j + 1.)
@@ -174,7 +173,7 @@ end
   if abs(rho) < kappa
     omega *= kappa / abs(rho)
   end
-  return abs(omega) > eps() ? mu = 1. / omega : 1.
+  return abs(omega) > eps() ? 1. / omega : 1.
 end
 
 end
