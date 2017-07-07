@@ -248,6 +248,7 @@ end
   if proj.orthSearch && proj.j == 0
     # First s steps we project orthogonal to R0 by using a flexible preconditioner
     orthogonalizeCGS!(arnold.vhat, proj.R0, arnold.α)
+    
   end
   A_mul_B!(unsafe_view(arnold.G, :, arnold.lastIdx), arnold.A, arnold.vhat)
 end
@@ -283,6 +284,13 @@ end
 function orthogonalizeCGS!(g, G, h)
   gemv!('C', 1.0, G, g, 0.0, h)
   gemv!('N', -1.0, G, h, 1.0, g)
+
+  γ = copy(h)
+
+  gemv!('C', 1.0, G, g, 0.0, γ)
+  gemv!('N', -1.0, G, γ, 1.0, g)
+
+  axpy!(1.0, γ, h)
 end
 
 function orthogonalizeMGS!(g, G, h)
