@@ -18,8 +18,8 @@
         - @compat Base.IndexStyle(::Type{V}) where {V <: UnsafeView} = IndexLinear()
         - 
         - # For now only the kind of views needed in the package, maybe switch to ArrayViews.jl if that becomes faster.
-    54720 @inline unsafe_view(parent::DenseVector{T}, range::UnitRange) where {T} = UnsafeView{T,1}((length(range),), pointer(parent) + sizeof(eltype(parent)) * (start(range) - 1))
+    43200 @inline unsafe_view(parent::DenseVector{T}, range::UnitRange) where {T} = UnsafeView{T,1}((length(range),), pointer(parent) + sizeof(eltype(parent)) * (start(range) - 1))
         - @inline unsafe_view(parent::DenseMatrix{T}, range::UnitRange, column::Int) where {T} = UnsafeView{T,1}((length(range),), pointer(parent) + sizeof(eltype(parent)) * ((column - 1) * size(parent, 1) + start(range) - 1))
-    11520 @inline unsafe_view(parent::DenseMatrix{T}, ::Colon, column::Int) where {T} = UnsafeView{T,1}((size(parent, 1),), pointer(parent) + sizeof(eltype(parent)) * (column - 1) * size(parent, 1))
-    17280 @inline unsafe_view(parent::DenseMatrix{T}, ::Colon, range::UnitRange) where {T} = UnsafeView{T,2}((size(parent, 1), length(range)), pointer(parent) + sizeof(eltype(parent)) * (first(range) - 1) * size(parent, 1))
+  1563840 @inline unsafe_view(parent::DenseMatrix{T}, ::Colon, column::Int) where {T} = UnsafeView{T,1}((size(parent, 1),), pointer(parent) + sizeof(eltype(parent)) * (column - 1) * size(parent, 1))
+     5760 @inline unsafe_view(parent::DenseMatrix{T}, ::Colon, range::UnitRange) where {T} = UnsafeView{T,2}((size(parent, 1), length(range)), pointer(parent) + sizeof(eltype(parent)) * (first(range) - 1) * size(parent, 1))
         - 

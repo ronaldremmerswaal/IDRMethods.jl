@@ -27,18 +27,18 @@ type Hessenberg
   n
   s
   r
-  h
   cosine
   sine
   phi
   phihat
 
-  Hessenberg(n, s, T, rho0) = new(n, s, zeros(T, s + 3), zeros(T, s + 2), zeros(T, s + 2), zeros(T, s + 2), zero(T), rho0)
+  Hessenberg(n, s, T, rho0) = new(n, s, zeros(T, s + 3), zeros(T, s + 2), zeros(T, s + 2), zero(T), rho0)
 end
 
 type Arnoldi
   A
   P
+
   permG
   G
   W
@@ -164,10 +164,8 @@ end
 
 # Updates the QR factorization of H
 function update!(hes::Hessenberg, proj::Projector, iter)
-  axpy!(-proj.mu, proj.u, unsafe_view(hes.h, 1 : hes.s))
-  hes.h[end - 1] += proj.mu
-  hes.r[1] = 0.
-  hes.r[2 : end] = hes.h
+  axpy!(-proj.mu, proj.u, unsafe_view(hes.r, 2 : hes.s + 1))
+  hes.r[end - 1] += proj.mu
 
   # Apply previous Givens rotations to new column of h
   for l = max(1, hes.s + 3 - iter) : hes.s + 1
@@ -219,7 +217,7 @@ function updateW!(arnold::Arnoldi, hes::Hessenberg, k, iter)
   if iter > arnold.s
     gemv!('N', -1.0, arnold.W, hes.r[[arnold.s + 2 - k : arnold.s + 1; 1 : arnold.s + 1 - k]], 1.0, arnold.vhat)
   else
-    gemv!('N', -1.0, unsafe_view(arnold.W, :, 1 : k), hes.r[arnold.s + 2 - k : arnold.s + 1], 1.0, arnold.vhat)
+    gemv!('N', -1.0, unsafe_view(arnold.W, :, 1 : k), unsafe_view(hes.r, arnold.s + 2 - k : arnold.s + 1), 1.0, arnold.vhat)
   end
 
   copy!(unsafe_view(arnold.W, :, arnold.lastIdx), arnold.vhat)
@@ -228,7 +226,7 @@ end
 
 function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
 
-  hes.h[:] = 0.
+  hes.r[:] = 0.
   aIdx = arnold.lastIdx
   if k < arnold.s + 1
     for l in 1 : k
@@ -236,11 +234,11 @@ function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
       axpy!(-arnold.alpha[l], unsafe_view(arnold.G, :, l), unsafe_view(arnold.G, :, aIdx))
     end
 
-    hes.h[arnold.s + 2 - k : arnold.s + 1] = unsafe_view(arnold.alpha, 1 : k)
+    hes.r[arnold.s + 3 - k : arnold.s + 2] = unsafe_view(arnold.alpha, 1 : k)
   end
 
-  hes.h[end] = vecnorm(unsafe_view(arnold.G, :, aIdx))
-  scale!(unsafe_view(arnold.G, :, aIdx), 1 / hes.h[end])
+  hes.r[end] = vecnorm(unsafe_view(arnold.G, :, aIdx))
+  scale!(unsafe_view(arnold.G, :, aIdx), 1 / hes.r[end])
   copy!(arnold.v, unsafe_view(arnold.G, :, aIdx))
 
 end
