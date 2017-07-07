@@ -1,0 +1,274 @@
+        - module IDRMethods
+        - 
+        - export fqmrIDRs
+        - 
+        - using Base.BLAS
+        - using Base.LinAlg
+        - 
+        - include("harmenView.jl")
+        - 
+        - type Identity
+        - end
+        - type Preconditioner
+        - end
+        - 
+        - type Projector
+        -   j
+        -   mu
+        -   M
+        -   R0
+        -   u
+        -   m
+        -   gIdx
+        - 
+ 24728864   Projector(n, s, T) = new(0, zero(T), zeros(T, s, s), Matrix{T}(n, s), zeros(T, s), Vector{T}(s), Vector{Int64}(s + 1))
+        - end
+        - 
+        - type Hessenberg
+        -   n
+        -   s
+        -   r
+        -   h
+        -   cosine
+        -   sine
+        -   phi
+        -   phihat
+        - 
+    10240   Hessenberg(n, s, T, rho0) = new(n, s, zeros(T, s + 3), zeros(T, s + 2), zeros(T, s + 2), zeros(T, s + 2), zero(T), rho0)
+        - end
+        - 
+        - type Arnoldi
+        -   A
+        -   P
+        -   permG
+        -   G
+        -   W
+        -   n
+        -   s
+        -   v           # last projected orthogonal to R0
+        -   vhat
+        - 
+        -   alpha
+        -   lastIdx
+        - 
+        -   # TODO how many n-vectors do we need? (g, v, vhat)
+ 48334000   Arnoldi(A, P, g, n, s, T) = new(A, P, [1 : s...], Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), Vector{T}(s), 1)
+        - end
+        - 
+        - type Solution
+        -   x
+        -   rho
+        -   rho0
+        -   tol
+        - 
+      112   Solution(x, rho, tol) = new(x, rho, rho, tol)
+        - end
+        - 
+        - 
+        - function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity())
+        - 
+      208   if length(x0) == 0
+    80080     x0 = zeros(b)
+        0     r0 = b
+        -   else
+        0     r0 = b - A * x0
+        -   end
+       16   rho0 = vecnorm(r0)
+       96   hessenberg = Hessenberg(size(b, 1), s, eltype(b), rho0)
+        0   arnoldi = Arnoldi(A, P, r0 / rho0, size(b, 1), s, eltype(b))
+       16   arnoldi.W[:, 1] = 0.          # TODO put inside arnoldi constructor
+    80096   arnoldi.G[:, 1] = r0 / rho0   # TODO put inside arnoldi constructor
+        0   solution = Solution(x0, rho0, tol)
+        0   projector = Projector(size(b, 1), s, eltype(b))
+        - 
+        0   iter = 0
+        0   stopped = false
+        - 
+        0   while !stopped
+        0     for k in 1 : s + 1
+        0       iter += 1
+        - 
+        0       if iter == s + 1
+        0         initialize!(projector, arnoldi)
+        -       end
+        - 
+        0       if iter > s
+        0         apply!(projector, arnoldi)
+        -       end
+        - 
+        0       cycle!(arnoldi)
+        0       cycle!(hessenberg)
+        - 
+    11520       expand!(arnoldi, k)
+        - 
+        0       if k == s + 1
+        0         nextIDRSpace!(projector, arnoldi)
+        -       end
+        0       mapToIDRSpace!(arnoldi, projector, k)
+        - 
+        0       updateG!(arnoldi, hessenberg, k)
+        0       update!(hessenberg, projector, iter)
+        0       updateW!(arnoldi, hessenberg, k, iter)
+        - 
+        0       update!(solution, arnoldi, hessenberg, projector, k)
+     2880       if isConverged(solution) || iter == maxIt
+        0         stopped = true
+        0         break
+        -       end
+        -     end
+        -   end
+        - 
+       32   return solution.x, solution.rho
+        - end
+        - 
+        - # Maps v -> v - G * (R0' * G)^-1 * R0 * v
+        - function apply!(proj::Projector, arnold::Arnoldi)
+        0   gemv!('C', 1.0, proj.R0, arnold.v, 0.0, proj.m)
+        0   lu = lufact(proj.M)
+        0   A_ldiv_B!(proj.u, lu, proj.m)
+        0   if arnold.lastIdx > 1
+        0     gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), proj.u[proj.gIdx[1 : arnold.lastIdx - 1]], 1.0, arnold.v)
+        -   end
+        0   if arnold.lastIdx <= arnold.s
+        0     gemv!('N', -1.0, unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), proj.u[proj.gIdx[arnold.lastIdx + 1 : end]], 1.0, arnold.v)
+        -   end
+        0   proj.u[:] = proj.u[arnold.permG]
+        0   proj.M[:, arnold.permG[1]] = proj.m
+        0   proj.gIdx[arnold.lastIdx] = arnold.permG[1]
+        - end
+        - 
+        - 
+        - @inline function initialize!(proj::Projector, arnold::Arnoldi)
+        -   # TODO replace by in-place orth?
+        0   rand!(proj.R0)
+        0   qrfact!(proj.R0)
+        0   gemm!('C', 'N', 1.0, proj.R0, unsafe_view(arnold.G, :, 1 : arnold.s), 1.0, proj.M)
+        0   proj.gIdx[1 : arnold.s] = 1 : arnold.s
+        - end
+        - 
+        - function nextIDRSpace!(proj::Projector, arnold::Arnoldi)
+        0   proj.j += 1
+        - 
+        -   # Compute residual minimizing mu
+        0   tv = vecdot(unsafe_view(arnold.G, :, arnold.lastIdx), arnold.v)
+        0   tt = vecdot(unsafe_view(arnold.G, :, arnold.lastIdx), unsafe_view(arnold.G, :, arnold.lastIdx))
+        - 
+        0   omega = tv / tt
+        0   rho = tv / (sqrt(tt) * norm(arnold.v))
+        0   if abs(rho) < 0.7
+        0     omega *= 0.7 / abs(rho)
+        -   end
+        0   proj.mu = abs(omega) > eps() ? 1. / omega : 1.
+        - end
+        - 
+        - @inline function cycle!(hes::Hessenberg)
+    11520   hes.cosine[1 : end - 1] = unsafe_view(hes.cosine, 2 : hes.s + 2)
+    11520   hes.sine[1 : end - 1] = unsafe_view(hes.sine, 2 : hes.s + 2)
+        - end
+        - 
+        - # Updates the QR factorization of H
+        - function update!(hes::Hessenberg, proj::Projector, iter)
+    11520   axpy!(-proj.mu, proj.u, unsafe_view(hes.h, 1 : hes.s))
+     5760   hes.h[end - 1] += proj.mu
+        0   hes.r[1] = 0.
+     5760   hes.r[2 : end] = hes.h
+        - 
+        -   # Apply previous Givens rotations to new column of h
+   521280   for l = max(1, hes.s + 3 - iter) : hes.s + 1
+   257760     oldRl = hes.r[l]
+  1546560     hes.r[l] = hes.cosine[l] * oldRl + hes.sine[l] * hes.r[l + 1]
+  2062080     hes.r[l + 1] = -conj(hes.sine[l]) * oldRl + hes.cosine[l] * hes.r[l + 1]
+        -   end
+        - 
+        -   # Compute new Givens rotation
+     2880   a = hes.r[end - 1]
+     2880   b = hes.r[end]
+     2880   if abs(a) < eps()
+        0     hes.sine[end] = 1.
+        0     hes.cosine[end] = 0.
+        0     hes.r[end - 1] = b
+        -   else
+     8640     t = abs(a) + abs(b)
+    25920     rho = t * sqrt(abs(a / t) ^ 2 + abs(b / t) ^ 2)
+     5760     alpha = a / abs(a)
+        - 
+     8640     hes.sine[end] = alpha * conj(b) / rho
+     5760     hes.cosine[end] = abs(a) / rho
+     2880     hes.r[end - 1] = alpha * rho
+        -   end
+        - 
+     5760   hes.phi = hes.cosine[end] * hes.phihat
+    11520   hes.phihat = -conj(hes.sine[end]) * hes.phihat
+        - end
+        - 
+        - @inline function cycle!(arnold::Arnoldi)
+        0   pGEnd = arnold.permG[1]
+    11520   arnold.permG[1 : end - 1] = unsafe_view(arnold.permG, 2 : arnold.s)
+        0   arnold.permG[end] = pGEnd
+        - end
+        - 
+        - @inline evalPrecon!(P::Identity, v) =
+        - @inline function evalPrecon!(P::Preconditioner, v)
+        -   v = P \ v
+        - end
+        - 
+        - @inline function expand!(arnold::Arnoldi, k)
+        0   arnold.lastIdx = k > arnold.s ? 1 : k + 1
+        0   copy!(arnold.vhat, arnold.v)
+        0   evalPrecon!(arnold.P, arnold.vhat)
+        -   A_mul_B!(unsafe_view(arnold.G, :, arnold.lastIdx), arnold.A, arnold.vhat)
+        - end
+        - 
+        - function updateW!(arnold::Arnoldi, hes::Hessenberg, k, iter)
+        0   if iter > arnold.s
+        -     # TODO make periodic iterator such that view can be used here on hes.r
+        0     gemv!('N', -1.0, arnold.W, hes.r[[arnold.s + 2 - k : arnold.s + 1; 1 : arnold.s + 1 - k]], 1.0, arnold.vhat)
+        -   else
+   163424     gemv!('N', -1.0, unsafe_view(arnold.W, :, 1 : k), hes.r[arnold.s + 2 - k : arnold.s + 1], 1.0, arnold.vhat)
+        -   end
+        0   wIdx = k > arnold.s ? 1 : k + 1
+    11520   copy!(unsafe_view(arnold.W, :, wIdx), arnold.vhat)
+    17280   scale!(unsafe_view(arnold.W, :, wIdx), 1 / hes.r[end - 1])
+        - end
+        - 
+        - function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
+        -   # TODO (repeated) CGS?
+        0   hes.h[:] = 0.
+        0   aIdx = arnold.lastIdx
+        0   if k < arnold.s + 1
+        -     # for l in 1 : k
+        -     #   arnold.alpha[l] = vecdot(unsafe_view(arnold.G, :, l), unsafe_view(arnold.G, :, aIdx))
+        -     #   axpy!(-arnold.alpha[l], unsafe_view(arnold.G, :, l), unsafe_view(arnold.G, :, aIdx))
+        -     # end
+        - 
+    11520     gemv!('C', 1.0, unsafe_view(arnold.G, :, 1 : k), unsafe_view(arnold.G, :, aIdx), 0.0, unsafe_view(arnold.alpha, 1 : k))
+    11520     gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : k), unsafe_view(arnold.alpha, 1 : k), 1.0, unsafe_view(arnold.G, :, aIdx))
+        - 
+    11520     hes.h[arnold.s + 2 - k : arnold.s + 1] = unsafe_view(arnold.alpha, 1 : k)
+        -   end
+        - 
+     8640   hes.h[end] = vecnorm(unsafe_view(arnold.G, :, aIdx))
+    17280   scale!(unsafe_view(arnold.G, :, aIdx), 1 / hes.h[end])
+     5760   copy!(arnold.v, unsafe_view(arnold.G, :, aIdx))
+        - 
+        - end
+        - 
+        - @inline function mapToIDRSpace!(arnold::Arnoldi, proj::Projector, k)
+        0   if proj.j > 0
+        0     axpy!(-proj.mu, arnold.v, unsafe_view(arnold.G, :, arnold.lastIdx));
+        -   end
+        - end
+        - 
+        - @inline function isConverged(sol::Solution)
+        -   return sol.rho < sol.tol * sol.rho0
+        - end
+        - 
+        - function update!(sol::Solution, arnold::Arnoldi, hes::Hessenberg, proj::Projector, k)
+        0   wIdx = k > arnold.s ? 1 : k + 1
+     5760   axpy!(hes.phi, unsafe_view(arnold.W, :, wIdx), sol.x)
+        - 
+    11520   sol.rho = abs(hes.phihat) * sqrt(proj.j + 1.)
+        - end
+        - 
+        - end
+        - 

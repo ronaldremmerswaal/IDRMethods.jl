@@ -50,9 +50,8 @@ type Arnoldi
   alpha
   lastIdx
 
-  ipermG
   # TODO how many n-vectors do we need? (g, v, vhat)
-  Arnoldi(A, P, g, n, s, T) = new(A, P, [1 : s...], Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), Vector{T}(s), 1, [s : -1 : 1...])
+  Arnoldi(A, P, g, n, s, T) = new(A, P, [1 : s...], Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), Vector{T}(s), 1)
 end
 
 type Solution
@@ -93,7 +92,7 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
       end
 
       if iter > s
-        apply!(projector, arnoldi)
+        apply!(projector, arnoldi, k)
       end
 
       cycle!(arnoldi)
@@ -121,15 +120,18 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
   return solution.x, solution.rho
 end
 
-
-function apply!(proj::Projector, arnold::Arnoldi)
+# Maps v -> v - G * (R0' * G)^-1 * R0 * v
+function apply!(proj::Projector, arnold::Arnoldi, k)
   gemv!('C', 1.0, proj.R0, arnold.v, 0.0, proj.m)
   lu = lufact(proj.M)
   A_ldiv_B!(proj.u, lu, proj.m)
-  proj.u = proj.u[arnold.permG]
-  println(arnold.lastIdx)
-  gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), unsafe_view(proj.u, 1 : arnold.lastIdx - 1), 1.0, arnold.v)
-  gemv!('N', -1.0, unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), unsafe_view(proj.u, arnold.lastIdx + 1 : arnold.s + 1), 1.0, arnold.v)
+  if arnold.lastIdx > 1
+    gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), proj.u[arnold.permG[end - k + 2 : end]], 1.0, arnold.v)
+  end
+  if arnold.lastIdx <= arnold.s
+    gemv!('N', -1.0, unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), proj.u[arnold.permG[1 : end - k + 1]], 1.0, arnold.v)
+  end
+  proj.u[:] = proj.u[arnold.permG]
   proj.M[:, arnold.permG[1]] = proj.m
 end
 
@@ -200,10 +202,6 @@ end
   pGEnd = arnold.permG[1]
   arnold.permG[1 : end - 1] = unsafe_view(arnold.permG, 2 : arnold.s)
   arnold.permG[end] = pGEnd
-
-  pGBegin = arnold.ipermG[end]
-  arnold.ipermG[2 : end] = unsafe_view(arnold.ipermG, 1 : arnold.s - 1)
-  arnold.ipermG[1] = pGBegin
 end
 
 @inline evalPrecon!(P::Identity, v) =
@@ -241,10 +239,11 @@ function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
     # end
 
     gemv!('C', 1.0, unsafe_view(arnold.G, :, 1 : k), unsafe_view(arnold.G, :, aIdx), 0.0, unsafe_view(arnold.alpha, 1 : k))
-    gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : k), unsafe_view(arnold.alpha, 1 : k), 1.0, unsafe_view(arnold.G, :, aIdx))
+    gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : k), arnold.alpha[1 : k], 1.0, unsafe_view(arnold.G, :, aIdx))
 
     hes.h[arnold.s + 2 - k : arnold.s + 1] = unsafe_view(arnold.alpha, 1 : k)
   end
+
   hes.h[end] = vecnorm(unsafe_view(arnold.G, :, aIdx))
   scale!(unsafe_view(arnold.G, :, aIdx), 1 / hes.h[end])
   copy!(arnold.v, unsafe_view(arnold.G, :, aIdx))
