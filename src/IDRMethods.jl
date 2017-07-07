@@ -239,7 +239,7 @@ function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
     # end
 
     gemv!('C', 1.0, unsafe_view(arnold.G, :, 1 : k), unsafe_view(arnold.G, :, aIdx), 0.0, unsafe_view(arnold.alpha, 1 : k))
-    gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : k), arnold.alpha[1 : k], 1.0, unsafe_view(arnold.G, :, aIdx))
+    gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : k), unsafe_view(arnold.alpha, 1 : k), 1.0, unsafe_view(arnold.G, :, aIdx))
 
     hes.h[arnold.s + 2 - k : arnold.s + 1] = unsafe_view(arnold.alpha, 1 : k)
   end
