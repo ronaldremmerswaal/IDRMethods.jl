@@ -137,7 +137,6 @@ end
 
 
 @inline function initialize!(proj::Projector, arnold::Arnoldi)
-  # TODO replace by in-place orth?
   rand!(proj.R0)
   qrfact!(proj.R0)
   gemm!('C', 'N', 1.0, proj.R0, unsafe_view(arnold.G, :, 1 : arnold.s), 1.0, proj.M)
@@ -218,28 +217,24 @@ end
 
 function updateW!(arnold::Arnoldi, hes::Hessenberg, k, iter)
   if iter > arnold.s
-    # TODO make periodic iterator such that view can be used here on hes.r
     gemv!('N', -1.0, arnold.W, hes.r[[arnold.s + 2 - k : arnold.s + 1; 1 : arnold.s + 1 - k]], 1.0, arnold.vhat)
   else
     gemv!('N', -1.0, unsafe_view(arnold.W, :, 1 : k), hes.r[arnold.s + 2 - k : arnold.s + 1], 1.0, arnold.vhat)
   end
-  wIdx = k > arnold.s ? 1 : k + 1
-  copy!(unsafe_view(arnold.W, :, wIdx), arnold.vhat)
-  scale!(unsafe_view(arnold.W, :, wIdx), 1 / hes.r[end - 1])
+
+  copy!(unsafe_view(arnold.W, :, arnold.lastIdx), arnold.vhat)
+  scale!(unsafe_view(arnold.W, :, arnold.lastIdx), 1 / hes.r[end - 1])
 end
 
 function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
-  # TODO (repeated) CGS?
+
   hes.h[:] = 0.
   aIdx = arnold.lastIdx
   if k < arnold.s + 1
-    # for l in 1 : k
-    #   arnold.alpha[l] = vecdot(unsafe_view(arnold.G, :, l), unsafe_view(arnold.G, :, aIdx))
-    #   axpy!(-arnold.alpha[l], unsafe_view(arnold.G, :, l), unsafe_view(arnold.G, :, aIdx))
-    # end
-
-    gemv!('C', 1.0, unsafe_view(arnold.G, :, 1 : k), unsafe_view(arnold.G, :, aIdx), 0.0, unsafe_view(arnold.alpha, 1 : k))
-    gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : k), unsafe_view(arnold.alpha, 1 : k), 1.0, unsafe_view(arnold.G, :, aIdx))
+    for l in 1 : k
+      arnold.alpha[l] = vecdot(unsafe_view(arnold.G, :, l), unsafe_view(arnold.G, :, aIdx))
+      axpy!(-arnold.alpha[l], unsafe_view(arnold.G, :, l), unsafe_view(arnold.G, :, aIdx))
+    end
 
     hes.h[arnold.s + 2 - k : arnold.s + 1] = unsafe_view(arnold.alpha, 1 : k)
   end
@@ -261,9 +256,7 @@ end
 end
 
 function update!(sol::Solution, arnold::Arnoldi, hes::Hessenberg, proj::Projector, k)
-  wIdx = k > arnold.s ? 1 : k + 1
-  axpy!(hes.phi, unsafe_view(arnold.W, :, wIdx), sol.x)
-
+  axpy!(hes.phi, unsafe_view(arnold.W, :, arnold.lastIdx), sol.x)
   sol.rho = abs(hes.phihat) * sqrt(proj.j + 1.)
 end
 
