@@ -179,9 +179,9 @@ end
   if length(proj.R0) == 0
     # NB if user provided R0, then we assume it is orthogonalized already!
     proj.R0 = rand(arnold.n, arnold.s)
-    qrfact!(proj.R0)
+    proj.R0, = qr(proj.R0)
   end
-  gemm!('C', 'N', 1.0, proj.R0, unsafe_view(arnold.G, :, 1 : arnold.s), 1.0, proj.M)
+  Ac_mul_B!(proj.M, proj.R0, unsafe_view(arnold.G, :, 1 : arnold.s))
 end
 
 function nextIDRSpace!(proj::Projector, arnold::Arnoldi)
