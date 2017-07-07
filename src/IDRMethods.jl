@@ -12,11 +12,15 @@ type Preconditioner end
 
 abstract type OrthType end
 
-type ClassicalGS <: OrthType end
+type ClassicalGS <: OrthType
+  tol
+end
 type RepeatedClassicalGS <: OrthType
   tol
 end
-type ModifiedGS <: OrthType end
+type ModifiedGS <: OrthType
+  tol
+end
 
 
 type Projector
@@ -75,7 +79,7 @@ type Solution
 end
 
 
-function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = [], orthTol = one(real(eltype(b))) / √2, orthSearch = false, kappa = 0.7, orth = "RCGS")
+function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = [], orthTol = one(real(eltype(b))) / √2, orthSearch = false, kappa = 0.7, orth = "MGS")
   if length(R0) > 0 && size(R0) != (length(b), s)
     error("size(R0) != [", length(b), ", $s] (User provided shadow residuals are of incorrect size)")
   end
@@ -88,9 +92,9 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
   if orth == "RCGS"
     orthT = RepeatedClassicalGS(orthTol)
   elseif orth == "CGS"
-    orthT = ClassicalGS()
+    orthT = ClassicalGS(orthTol)
   elseif orth == "MGS"
-    orthT = ModifiedGS()
+    orthT = ModifiedGS(orthTol)
   end
   rho0 = vecnorm(r0)
   hessenberg = Hessenberg(size(b, 1), s, eltype(b), rho0)
@@ -161,21 +165,48 @@ end
 
 # Maps v -> v - G * (R0' * G)^-1 * R0 * v
 function apply!(proj::Projector, arnold::Arnoldi, k)
-  gemv!('C', 1.0, proj.R0, arnold.v, 0.0, proj.m)
   lu = lufact(proj.M)
-  A_ldiv_B!(proj.u, lu, proj.m)
-  proj.u[:] = proj.u[arnold.permG]
-  if arnold.lastIdx > 1
-    gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), unsafe_view(proj.u, arnold.s - k + 2 : arnold.s), 1.0, arnold.v)
-  end
-  if arnold.lastIdx <= arnold.s
-    gemv!('N', -1.0, unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), unsafe_view(proj.u, 1 : arnold.s - k + 1), 1.0, arnold.v)
-  end
+
+  skewProject!(arnold.v, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), proj.R0, lu, proj.u, arnold.s - k + 2 : arnold.s, 1 : arnold.s - k + 1, arnold.permG, proj.m, arnold.orthT)
+
   proj.M[:, arnold.permG[1]] = proj.m
+
 end
 
+function skewProject!(v, G1, G2, R0, lu, u, idx1, idx2, perm, m, orthT)
+  Ac_mul_B!(m, R0, v)
+  A_ldiv_B!(u, lu, m)
+  u[:] = u[perm]
 
-@inline function initialize!(proj::Projector, arnold::Arnoldi)
+  gemv!('N', -1.0, G1, unsafe_view(u, idx1), 1.0, v)
+  gemv!('N', -1.0, G2, unsafe_view(u, idx2), 1.0, v)
+
+  mUpdate = zeros(m)
+  Ac_mul_B!(mUpdate, R0, v)
+  if vecnorm(v) > orthT.tol * vecnorm(m)
+    # Repeat projection
+    uUpdate = zeros(u)
+    A_ldiv_B!(uUpdate, lu, mUpdate)
+    uUpdate[:] = uUpdate[perm]
+
+    gemv!('N', -1.0, G1, unsafe_view(uUpdate, idx1), 1.0, v)
+    gemv!('N', -1.0, G2, unsafe_view(uUpdate, idx2), 1.0, v)
+
+    axpy!(1.0, mUpdate, m)
+    axpy!(1.0, uUpdate, u)
+  end
+end
+
+function skewProject!(v, G1, G2, R0, lu, u, idx1, idx2, perm, m, orthT::ClassicalGS)
+  Ac_mul_B!(m, R0, v)
+  A_ldiv_B!(u, lu, m)
+  u[:] = u[perm]
+
+  gemv!('N', -1.0, G1, unsafe_view(u, idx1), 1.0, v)
+  gemv!('N', -1.0, G2, unsafe_view(u, idx2), 1.0, v)
+end
+
+function initialize!(proj::Projector, arnold::Arnoldi)
   if length(proj.R0) == 0
     # NB if user provided R0, then we assume it is orthogonalized already!
     proj.R0 = rand(arnold.n, arnold.s)
@@ -199,7 +230,7 @@ function nextIDRSpace!(proj::Projector, arnold::Arnoldi)
   proj.μ = abs(ω) > eps() ? 1. / ω : 1.
 end
 
-@inline function cycle!(hes::Hessenberg)
+function cycle!(hes::Hessenberg)
   hes.cosine[1 : end - 1] = unsafe_view(hes.cosine, 2 : hes.s + 2)
   hes.sine[1 : end - 1] = unsafe_view(hes.sine, 2 : hes.s + 2)
 end
@@ -218,7 +249,7 @@ function update!(hes::Hessenberg, proj::Projector, iter)
   hes.φ = -conj(hes.sine[end]) * hes.φ
 end
 
-@inline function applyGivens!(r, sine, cosine)
+function applyGivens!(r, sine, cosine)
   for l = 1 : length(r) - 1
     oldRl = r[l]
     r[l] = cosine[l] * oldRl + sine[l] * r[l + 1]
@@ -235,16 +266,16 @@ function updateGivens!(r, sine, cosine)
     r[end - 1] = β
   else
     t = abs(α) + abs(β)
-    rho = t * sqrt(abs(α / t) ^ 2 + abs(β / t) ^ 2)
+    ρ = t * sqrt(abs(α / t) ^ 2 + abs(β / t) ^ 2)
     Θ = α / abs(α)
+    sine[end] = Θ * conj(β) / ρ
 
-    sine[end] = Θ * conj(β) / rho
-    cosine[end] = abs(α) / rho
-    r[end - 1] = Θ * rho
+    cosine[end] = abs(α) / ρ
+    r[end - 1] = Θ * ρ
   end
 end
 
-@inline function cycle!(arnold::Arnoldi)
+function cycle!(arnold::Arnoldi)
   pGEnd = arnold.permG[1]
   arnold.permG[1 : end - 1] = unsafe_view(arnold.permG, 2 : arnold.s)
   arnold.permG[end] = pGEnd
@@ -258,7 +289,7 @@ end
   P(vhat, v)
 end
 
-@inline function expand!(arnold::Arnoldi, proj::Projector, k)
+function expand!(arnold::Arnoldi, proj::Projector, k)
   arnold.lastIdx = k > arnold.s ? 1 : k + 1
   evalPrecon!(arnold.vhat, arnold.P, arnold.v)
   if proj.orthSearch && proj.j == 0
@@ -313,7 +344,7 @@ function orthogonalize!(g, G, h, orthT::RepeatedClassicalGS)
   happy = α < orthT.tol * β
   if happy return α end
 
-  for idx = 2 : 3
+  for idx = 2 : 5
     γ = copy(h)
 
     Ac_mul_B!(γ, G, g)
