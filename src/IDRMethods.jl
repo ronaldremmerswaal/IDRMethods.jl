@@ -7,10 +7,17 @@ using Base.LinAlg
 
 include("harmenView.jl")
 
-type Identity
+type Identity end
+type Preconditioner end
+
+abstract type OrthType end
+
+type ClassicalGS <: OrthType end
+type RepeatedClassicalGS <: OrthType
+  tol
 end
-type Preconditioner
-end
+type ModifiedGS <: OrthType end
+
 
 type Projector
   j
@@ -52,8 +59,10 @@ type Arnoldi
   α
   lastIdx
 
+  orthT
+
   # TODO how many n-vectors do we need? (g, v, vhat)
-  Arnoldi(A, P, g, n, s, T) = new(A, P, [1 : s...], Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), Vector{T}(s), 1)
+  Arnoldi(A, P, g, orthT, n, s, T) = new(A, P, [1 : s...], Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), Vector{T}(s), 1, orthT)
 end
 
 type Solution
@@ -66,7 +75,7 @@ type Solution
 end
 
 
-function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = [], orthSearch = false, kappa = 0.7)
+function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = [], orthTol = one(real(eltype(b))) / √2, orthSearch = false, kappa = 0.7, orth = "RCGS")
   if length(R0) > 0 && size(R0) != (length(b), s)
     error("size(R0) != [", length(b), ", $s] (User provided shadow residuals are of incorrect size)")
   end
@@ -76,9 +85,16 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
   else
     r0 = b - A * x
   end
+  if orth == "RCGS"
+    orthT = RepeatedClassicalGS(orthTol)
+  elseif orth == "CGS"
+    orthT = ClassicalGS()
+  elseif orth == "MGS"
+    orthT = ModifiedGS()
+  end
   rho0 = vecnorm(r0)
   hessenberg = Hessenberg(size(b, 1), s, eltype(b), rho0)
-  arnoldi = Arnoldi(A, P, r0 / rho0, size(b, 1), s, eltype(b))
+  arnoldi = Arnoldi(A, P, r0 / rho0, orthT, size(b, 1), s, eltype(b))
   arnoldi.W[:, 1] = 0.          # TODO put inside arnoldi constructor
   arnoldi.G[:, 1] = r0 / rho0   # TODO put inside arnoldi constructor
   solution = Solution(x0, rho0, tol)
@@ -247,8 +263,8 @@ end
   evalPrecon!(arnold.vhat, arnold.P, arnold.v)
   if proj.orthSearch && proj.j == 0
     # First s steps we project orthogonal to R0 by using a flexible preconditioner
-    orthogonalizeCGS!(arnold.vhat, proj.R0, arnold.α)
-    
+    orthogonalize!(arnold.vhat, proj.R0, arnold.α, arnold.orthT)
+    println(vecnorm(proj.R0' * arnold.vhat))
   end
   A_mul_B!(unsafe_view(arnold.G, :, arnold.lastIdx), arnold.A, arnold.vhat)
 end
@@ -269,35 +285,58 @@ function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
   hes.r[:] = 0.
   aIdx = arnold.lastIdx
   if k < arnold.s + 1
-    orthogonalizeCGS!(unsafe_view(arnold.G, :, aIdx), unsafe_view(arnold.G, :, 1 : k), unsafe_view(arnold.α, 1 : k))
-
-    hes.r[arnold.s + 3 - k : arnold.s + 2] = unsafe_view(arnold.α, 1 : k)
+    hes.r[end] = orthogonalize!(unsafe_view(arnold.G, :, aIdx), unsafe_view(arnold.G, :, 1 : k), unsafe_view(hes.r, arnold.s + 3 - k : arnold.s + 2), arnold.orthT)
+  else
+    hes.r[end] = vecnorm(unsafe_view(arnold.G, :, aIdx))
   end
 
-  hes.r[end] = vecnorm(unsafe_view(arnold.G, :, aIdx))
   scale!(unsafe_view(arnold.G, :, aIdx), 1 / hes.r[end])
   copy!(arnold.v, unsafe_view(arnold.G, :, aIdx))
 
 end
 
-# Orthogonalize g w.r.t. G, and store coeffs in h (NB g is not normalized)
-function orthogonalizeCGS!(g, G, h)
-  gemv!('C', 1.0, G, g, 0.0, h)
+function orthogonalize!(g, G, h, orthT::ClassicalGS)
+  Ac_mul_B!(h, G, g)
   gemv!('N', -1.0, G, h, 1.0, g)
 
-  γ = copy(h)
-
-  gemv!('C', 1.0, G, g, 0.0, γ)
-  gemv!('N', -1.0, G, γ, 1.0, g)
-
-  axpy!(1.0, γ, h)
+  return vecnorm(g)
 end
 
-function orthogonalizeMGS!(g, G, h)
+# Orthogonalize g w.r.t. G, and store coeffs in h (NB g is not normalized)
+function orthogonalize!(g, G, h, orthT::RepeatedClassicalGS)
+  Ac_mul_B!(h, G, g)
+  gemv!('N', -1.0, G, h, 1.0, g)
+
+  α = vecnorm(g)
+  β = vecnorm(h)
+
+  happy = α < orthT.tol * β
+  if happy return α end
+
+  for idx = 2 : 3
+    γ = copy(h)
+
+    Ac_mul_B!(γ, G, g)
+    gemv!('N', -1.0, G, γ, 1.0, g)
+
+    axpy!(1.0, γ, h)
+
+    α = vecnorm(g)
+    β = vecnorm(γ)
+    happy = α < orthT.tol * β
+
+    if happy break end
+  end
+
+  return α
+end
+
+function orthogonalize!(g, G, h, orthT::ModifiedGS)
   for l in 1 : length(h)
     h[l] = vecdot(unsafe_view(G, :, l), g)
     axpy!(-h[l], unsafe_view(G, :, l), g)
   end
+  return vecnorm(g)
 end
 
 @inline function mapToIDRSpace!(arnold::Arnoldi, proj::Projector, k)

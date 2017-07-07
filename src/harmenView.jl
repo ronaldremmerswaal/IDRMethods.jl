@@ -19,6 +19,7 @@ const UnsafeMatrixView{T} = UnsafeView{T,2}
 
 # For now only the kind of views needed in the package, maybe switch to ArrayViews.jl if that becomes faster.
 @inline unsafe_view(parent::DenseVector{T}, range::UnitRange) where {T} = UnsafeView{T,1}((length(range),), pointer(parent) + sizeof(eltype(parent)) * (start(range) - 1))
+@inline unsafe_view(parent::DenseVector{T}, range::Integer) where {T} = UnsafeView{T,1}((1,), pointer(parent))
 @inline unsafe_view(parent::DenseMatrix{T}, range::UnitRange, column::Int) where {T} = UnsafeView{T,1}((length(range),), pointer(parent) + sizeof(eltype(parent)) * ((column - 1) * size(parent, 1) + start(range) - 1))
 @inline unsafe_view(parent::DenseMatrix{T}, ::Colon, column::Int) where {T} = UnsafeView{T,1}((size(parent, 1),), pointer(parent) + sizeof(eltype(parent)) * (column - 1) * size(parent, 1))
 @inline unsafe_view(parent::DenseMatrix{T}, ::Colon, range::UnitRange) where {T} = UnsafeView{T,2}((size(parent, 1), length(range)), pointer(parent) + sizeof(eltype(parent)) * (first(range) - 1) * size(parent, 1))
