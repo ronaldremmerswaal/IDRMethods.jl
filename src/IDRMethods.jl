@@ -125,13 +125,13 @@ function apply!(proj::Projector, arnold::Arnoldi, k)
   gemv!('C', 1.0, proj.R0, arnold.v, 0.0, proj.m)
   lu = lufact(proj.M)
   A_ldiv_B!(proj.u, lu, proj.m)
+  proj.u[:] = proj.u[arnold.permG]
   if arnold.lastIdx > 1
-    gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), proj.u[arnold.permG[end - k + 2 : end]], 1.0, arnold.v)
+    gemv!('N', -1.0, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), unsafe_view(proj.u, arnold.s - k + 2 : arnold.s), 1.0, arnold.v)
   end
   if arnold.lastIdx <= arnold.s
-    gemv!('N', -1.0, unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), proj.u[arnold.permG[1 : end - k + 1]], 1.0, arnold.v)
+    gemv!('N', -1.0, unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), unsafe_view(proj.u, 1 : arnold.s - k + 1), 1.0, arnold.v)
   end
-  proj.u[:] = proj.u[arnold.permG]
   proj.M[:, arnold.permG[1]] = proj.m
 end
 
