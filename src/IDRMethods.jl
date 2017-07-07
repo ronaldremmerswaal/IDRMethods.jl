@@ -20,7 +20,7 @@ type Projector
   u
   m
 
-  Projector(n, s, T) = new(0, zero(T), zeros(T, s, s), Matrix{T}(n, s), zeros(T, s), Vector{T}(s))
+  Projector(n, s, R0, T) = new(0, zero(T), zeros(T, s, s), R0, zeros(T, s), Vector{T}(s))
 end
 
 type Hessenberg
@@ -64,7 +64,7 @@ type Solution
 end
 
 
-function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity())
+function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = [])
 
   if length(x0) == 0
     x0 = zeros(b)
@@ -78,7 +78,7 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
   arnoldi.W[:, 1] = 0.          # TODO put inside arnoldi constructor
   arnoldi.G[:, 1] = r0 / rho0   # TODO put inside arnoldi constructor
   solution = Solution(x0, rho0, tol)
-  projector = Projector(size(b, 1), s, eltype(b))
+  projector = Projector(size(b, 1), s, R0, eltype(b))
 
   iter = 0
   stopped = false
@@ -137,8 +137,11 @@ end
 
 
 @inline function initialize!(proj::Projector, arnold::Arnoldi)
-  rand!(proj.R0)
-  qrfact!(proj.R0)
+  if length(proj.R0) == 0
+    # NB if user provided R0, then we assume it is orthogonalized already!
+    proj.R0 = rand(arnold.n, arnold.s)
+    qrfact!(proj.R0)
+  end
   gemm!('C', 'N', 1.0, proj.R0, unsafe_view(arnold.G, :, 1 : arnold.s), 1.0, proj.M)
 end
 
@@ -167,32 +170,39 @@ function update!(hes::Hessenberg, proj::Projector, iter)
   axpy!(-proj.mu, proj.u, unsafe_view(hes.r, 2 : hes.s + 1))
   hes.r[end - 1] += proj.mu
 
-  # Apply previous Givens rotations to new column of h
-  for l = max(1, hes.s + 3 - iter) : hes.s + 1
-    oldRl = hes.r[l]
-    hes.r[l] = hes.cosine[l] * oldRl + hes.sine[l] * hes.r[l + 1]
-    hes.r[l + 1] = -conj(hes.sine[l]) * oldRl + hes.cosine[l] * hes.r[l + 1]
-  end
+  startIdx = max(1, hes.s + 3 - iter)
+  applyGivens!(unsafe_view(hes.r, startIdx : hes.s + 2), unsafe_view(hes.sine, startIdx : hes.s + 1), unsafe_view(hes.cosine, startIdx : hes.s + 1))
 
-  # Compute new Givens rotation
-  a = hes.r[end - 1]
-  b = hes.r[end]
+  updateGivens!(hes.r, hes.sine, hes.cosine)
+
+  hes.phi = hes.cosine[end] * hes.phihat
+  hes.phihat = -conj(hes.sine[end]) * hes.phihat
+end
+
+@inline function applyGivens!(r, sine, cosine)
+  for l = 1 : length(r) - 1
+    oldRl = r[l]
+    r[l] = cosine[l] * oldRl + sine[l] * r[l + 1]
+    r[l + 1] = -conj(sine[l]) * oldRl + cosine[l] * r[l + 1]
+  end
+end
+
+function updateGivens!(r, sine, cosine)
+  a = r[end - 1]
+  b = r[end]
   if abs(a) < eps()
-    hes.sine[end] = 1.
-    hes.cosine[end] = 0.
-    hes.r[end - 1] = b
+    sine[end] = 1.
+    cosine[end] = 0.
+    r[end - 1] = b
   else
     t = abs(a) + abs(b)
     rho = t * sqrt(abs(a / t) ^ 2 + abs(b / t) ^ 2)
     alpha = a / abs(a)
 
-    hes.sine[end] = alpha * conj(b) / rho
-    hes.cosine[end] = abs(a) / rho
-    hes.r[end - 1] = alpha * rho
+    sine[end] = alpha * conj(b) / rho
+    cosine[end] = abs(a) / rho
+    r[end - 1] = alpha * rho
   end
-
-  hes.phi = hes.cosine[end] * hes.phihat
-  hes.phihat = -conj(hes.sine[end]) * hes.phihat
 end
 
 @inline function cycle!(arnold::Arnoldi)
@@ -201,15 +211,14 @@ end
   arnold.permG[end] = pGEnd
 end
 
-@inline evalPrecon!(P::Identity, v) =
-@inline function evalPrecon!(P::Preconditioner, v)
-  v = P \ v
+@inline evalPrecon!(vhat, P::Identity, v) = copy!(vhat, v)
+@inline function evalPrecon!(vhat, P::Preconditioner, v)
+  A_ldiv_B!(vhat, P, v)
 end
 
 @inline function expand!(arnold::Arnoldi, k)
   arnold.lastIdx = k > arnold.s ? 1 : k + 1
-  copy!(arnold.vhat, arnold.v)
-  evalPrecon!(arnold.P, arnold.vhat)
+  evalPrecon!(arnold.vhat, arnold.P, arnold.v)
   A_mul_B!(unsafe_view(arnold.G, :, arnold.lastIdx), arnold.A, arnold.vhat)
 end
 
@@ -229,10 +238,7 @@ function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
   hes.r[:] = 0.
   aIdx = arnold.lastIdx
   if k < arnold.s + 1
-    for l in 1 : k
-      arnold.alpha[l] = vecdot(unsafe_view(arnold.G, :, l), unsafe_view(arnold.G, :, aIdx))
-      axpy!(-arnold.alpha[l], unsafe_view(arnold.G, :, l), unsafe_view(arnold.G, :, aIdx))
-    end
+    orthogonalize!(unsafe_view(arnold.G, :, aIdx), unsafe_view(arnold.G, :, 1 : k), unsafe_view(arnold.alpha, 1 : k))
 
     hes.r[arnold.s + 3 - k : arnold.s + 2] = unsafe_view(arnold.alpha, 1 : k)
   end
@@ -241,6 +247,16 @@ function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
   scale!(unsafe_view(arnold.G, :, aIdx), 1 / hes.r[end])
   copy!(arnold.v, unsafe_view(arnold.G, :, aIdx))
 
+end
+
+# Orthogonalize g w.r.t. G, and store coeffs in h (NB g is not normalized)
+function orthogonalize!(g, G, h)
+  # for l in 1 : length(h)
+  #   h[l] = vecdot(unsafe_view(G, :, l), g)
+  #   axpy!(-h[l], unsafe_view(G, :, l), g)
+  # end
+  gemv!('C', 1.0, G, g, 0.0, h)
+  gemv!('N', -1.0, G, h, 1.0, g)
 end
 
 @inline function mapToIDRSpace!(arnold::Arnoldi, proj::Projector, k)
