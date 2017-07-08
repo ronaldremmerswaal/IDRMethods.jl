@@ -42,8 +42,9 @@ type Projector
   κ
   orthSearch
   skewT
+  colPerm
 
-  Projector(n, s, R0, κ, orthSearch, skewT, T) = new(n, s, 0, zero(T), [], R0, zeros(T, s), Vector{T}(s), κ, orthSearch, skewT)
+  Projector(n, s, R0, κ, orthSearch, skewT, T) = new(n, s, 0, zero(T), [], R0, zeros(T, s), Vector{T}(s), κ, orthSearch, skewT, [])
 end
 
 type Hessenberg
@@ -62,7 +63,6 @@ type Arnoldi
   A
   P
 
-  permG
   G
   W
   n
@@ -76,7 +76,7 @@ type Arnoldi
   orthT
 
   # TODO how many n-vectors do we need? (g, v, vhat)
-  Arnoldi(A, P, g, orthT, n, s, T) = new(A, P, [], Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), Vector{T}(s), 1, orthT)
+  Arnoldi(A, P, g, orthT, n, s, T) = new(A, P, Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), Vector{T}(s), 1, orthT)
 end
 
 type Solution
@@ -187,10 +187,10 @@ function apply!(proj::Projector, arnold::Arnoldi, k)
 
   lu = lufact(proj.M)
 
-  skewProject!(arnold.v, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), proj.R0, lu, proj.u, arnold.s - k + 2 : arnold.s, 1 : arnold.s - k + 1, arnold.permG, proj.m, proj.skewT)
+  skewProject!(arnold.v, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), proj.R0, lu, proj.u, arnold.s - k + 2 : arnold.s, 1 : arnold.s - k + 1, proj.colPerm, proj.m, proj.skewT)
 
-  proj.M[:, arnold.permG[1]] = proj.m
-  cycle!(arnold)
+  proj.M[:, proj.colPerm[1]] = proj.m
+  cycle!(proj)
 end
 
 function skewProject!(v, G1, G2, R0, lu, u, idx1, idx2, perm, m, skewT::RepeatSkew)
@@ -241,7 +241,13 @@ function initialize!(proj::Projector, arnold::Arnoldi)
   end
   proj.M = Matrix{eltype(arnold.v)}(proj.s, proj.s)
   Ac_mul_B!(proj.M, proj.R0, unsafe_view(arnold.G, :, 1 : arnold.s))
-  arnold.permG = [1 : arnold.s...]
+  proj.colPerm = [1 : proj.s...]
+end
+
+function cycle!(proj::Projector)
+  pGEnd = proj.colPerm[1]
+  proj.colPerm[1 : end - 1] = unsafe_view(proj.colPerm, 2 : proj.s)
+  proj.colPerm[end] = pGEnd
 end
 
 function nextIDRSpace!(proj::Projector, arnold::Arnoldi)
@@ -304,13 +310,6 @@ function updateGivens!(r, sine, cosine)
     cosine[end] = abs(α) / ρ
     r[end - 1] = Θ * ρ
   end
-end
-
-function cycle!(arnold::Arnoldi)
-
-  pGEnd = arnold.permG[1]
-  arnold.permG[1 : end - 1] = unsafe_view(arnold.permG, 2 : arnold.s)
-  arnold.permG[end] = pGEnd
 end
 
 @inline evalPrecon!(vhat, P::Identity, v) = copy!(vhat, v)
