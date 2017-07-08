@@ -42,11 +42,11 @@ type Projector
   orthSearch
   skewT
 
-  colPerm
+  latestIdx
   oldestIdx   # Index in G corresponding to oldest column in M
   gToMIdx     # Maps from G idx to M idx
 
-  Projector(n, s, R0, κ, orthSearch, skewT, T) = new(n, s, 0, zero(T), [], R0, zeros(T, s), κ, orthSearch, skewT, [], 0, [])
+  Projector(n, s, R0, κ, orthSearch, skewT, T) = new(n, s, 0, zero(T), [], R0, zeros(T, s), κ, orthSearch, skewT, 0, 0, [])
 end
 
 type Hessenberg
@@ -201,41 +201,38 @@ function apply!(proj::Projector, arnold::Arnoldi)
   # NB if arnold.s == proj.s we can always use
   #   j = 1 : latestIdx - 1, latestIdx + 1 : arnold.s + 1
 
-  newColIdx = proj.colPerm[1]
   if arnold.latestIdx == 1
-    skewProject!(arnold.v, unsafe_view(arnold.G, :, proj.oldestIdx : arnold.s + 1), proj.R0, lu, proj.u, unsafe_view(proj.gToMIdx, proj.oldestIdx : arnold.s + 1), proj.colPerm, unsafe_view(proj.M, :, newColIdx), proj.skewT)
+    skewProject!(arnold.v, unsafe_view(arnold.G, :, proj.oldestIdx : arnold.s + 1), proj.R0, lu, proj.u, unsafe_view(proj.gToMIdx, proj.oldestIdx : arnold.s + 1), unsafe_view(proj.M, :, proj.latestIdx), proj.skewT)
   elseif proj.oldestIdx < arnold.latestIdx
-    skewProject!(arnold.v, unsafe_view(arnold.G, :, proj.oldestIdx : arnold.latestIdx - 1), proj.R0, lu, proj.u, unsafe_view(proj.gToMIdx, proj.oldestIdx : arnold.latestIdx - 1), proj.colPerm, unsafe_view(proj.M, :, newColIdx), proj.skewT)
+    skewProject!(arnold.v, unsafe_view(arnold.G, :, proj.oldestIdx : arnold.latestIdx - 1), proj.R0, lu, proj.u, unsafe_view(proj.gToMIdx, proj.oldestIdx : arnold.latestIdx - 1), unsafe_view(proj.M, :, proj.latestIdx), proj.skewT)
   else
-    skewProject!(arnold.v, unsafe_view(arnold.G, :, 1 : arnold.latestIdx - 1), unsafe_view(arnold.G, :, proj.oldestIdx : arnold.s + 1), proj.R0, lu, proj.u, unsafe_view(proj.gToMIdx, 1 : arnold.latestIdx - 1), unsafe_view(proj.gToMIdx, proj.oldestIdx : arnold.s + 1), proj.colPerm, unsafe_view(proj.M, :, newColIdx), proj.skewT)
+    skewProject!(arnold.v, unsafe_view(arnold.G, :, proj.oldestIdx : arnold.s + 1), unsafe_view(arnold.G, :, 1 : arnold.latestIdx - 1), proj.R0, lu, proj.u, unsafe_view(proj.gToMIdx, proj.oldestIdx : arnold.s + 1), unsafe_view(proj.gToMIdx, 1 : arnold.latestIdx - 1), unsafe_view(proj.M, :, proj.latestIdx), proj.skewT)
   end
 
   # Update permutations
-  proj.gToMIdx[arnold.latestIdx] = newColIdx
+  proj.gToMIdx[arnold.latestIdx] = proj.latestIdx
   proj.gToMIdx[proj.oldestIdx] = 0  # NB Only to find bugs easier...
 
-  proj.colPerm[1 : end - 1] = unsafe_view(proj.colPerm, 2 : proj.s)
-  proj.colPerm[end] = newColIdx
-
+  proj.latestIdx = proj.latestIdx == proj.s ? 1 : proj.latestIdx + 1
   proj.oldestIdx = proj.oldestIdx > arnold.s ? 1 : proj.oldestIdx + 1
 end
 
 # To ensure contiguous memory, we often have to split the projections in 2 blocks
-function skewProject!(v, G1, G2, R0, lu, u, uIdx1, uIdx2, perm, m, skewT::SingleSkew)
+function skewProject!(v, G1, G2, R0, lu, u, uIdx1, uIdx2, m, skewT::SingleSkew)
   Ac_mul_B!(m, R0, v)
   A_ldiv_B!(u, lu, m)
 
-  gemv!('N', -1.0, G1, u[uIdx1], 1.0, v)
-  gemv!('N', -1.0, G2, u[uIdx2], 1.0, v)
-  u[:] = u[perm]
+  u[:] = u[[uIdx1; uIdx2]]
+  gemv!('N', -1.0, G1, u[1 : length(uIdx1)], 1.0, v)
+  gemv!('N', -1.0, G2, u[length(uIdx1) + 1 : end], 1.0, v)
 end
 
-function skewProject!(v, G, R0, lu, u, uIdx, perm, m, skewT::SingleSkew)
+function skewProject!(v, G, R0, lu, u, uIdx, m, skewT::SingleSkew)
   Ac_mul_B!(m, R0, v)
   A_ldiv_B!(u, lu, m)
 
-  gemv!('N', -1.0, G, u[uIdx], 1.0, v)
-  u[:] = u[perm]
+  u[:] = u[uIdx]
+  gemv!('N', -1.0, G, u, 1.0, v)
 end
 
 
@@ -278,8 +275,7 @@ function initialize!(proj::Projector, arnold::Arnoldi)
   proj.M = Matrix{eltype(arnold.v)}(proj.s, proj.s)
   Ac_mul_B!(proj.M, proj.R0, unsafe_view(arnold.G, :, arnold.s - proj.s + 1 : arnold.s))
 
-  proj.colPerm = [1 : proj.s...]
-
+  proj.latestIdx = proj.s
   proj.oldestIdx = arnold.s - proj.s + 1
 
   proj.gToMIdx = zeros(Int64, arnold.s + 1)
@@ -298,7 +294,7 @@ function nextIDRSpace!(proj::Projector, arnold::Arnoldi)
   if abs(η) < proj.κ
     ω *= proj.κ / abs(η)
   end
-  proj.μ = abs(ω) > eps() ? 1. / ω : 1.
+  proj.μ = abs(ω) > eps(real(eltype(arnold.v))) ? 1. / ω : 1.
 end
 
 function cycle!(hes::Hessenberg)
