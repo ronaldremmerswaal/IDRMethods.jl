@@ -31,6 +31,8 @@ type SingleSkew <: SkewType
 end
 
 type Projector
+  n
+  s
   j
   μ
   M
@@ -41,7 +43,7 @@ type Projector
   orthSearch
   skewT
 
-  Projector(n, s, R0, κ, orthSearch, skewT, T) = new(0, zero(T), zeros(T, s, s), R0, zeros(T, s), Vector{T}(s), κ, orthSearch, skewT)
+  Projector(n, s, R0, κ, orthSearch, skewT, T) = new(n, s, 0, zero(T), [], R0, zeros(T, s), Vector{T}(s), κ, orthSearch, skewT)
 end
 
 type Hessenberg
@@ -74,7 +76,7 @@ type Arnoldi
   orthT
 
   # TODO how many n-vectors do we need? (g, v, vhat)
-  Arnoldi(A, P, g, orthT, n, s, T) = new(A, P, [1 : s...], Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), Vector{T}(s), 1, orthT)
+  Arnoldi(A, P, g, orthT, n, s, T) = new(A, P, [], Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), Vector{T}(s), 1, orthT)
 end
 
 type Solution
@@ -113,9 +115,6 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
         # Compute u, v: the skew-projection of g along G orthogonal to R0 (for which v = (I - G * inv(M) * R0) * g)
         apply!(projector, arnoldi, k)
       end
-
-      cycle!(arnoldi)
-      cycle!(hessenberg)
 
       # Compute g = A * v
       expand!(arnoldi, projector, k)
@@ -185,12 +184,13 @@ end
 
 # Maps v -> v - G * (R0' * G)^-1 * R0 * v
 function apply!(proj::Projector, arnold::Arnoldi, k)
+
   lu = lufact(proj.M)
 
   skewProject!(arnold.v, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), proj.R0, lu, proj.u, arnold.s - k + 2 : arnold.s, 1 : arnold.s - k + 1, arnold.permG, proj.m, proj.skewT)
 
   proj.M[:, arnold.permG[1]] = proj.m
-
+  cycle!(arnold)
 end
 
 function skewProject!(v, G1, G2, R0, lu, u, idx1, idx2, perm, m, skewT::RepeatSkew)
@@ -239,7 +239,9 @@ function initialize!(proj::Projector, arnold::Arnoldi)
     proj.R0 = rand(arnold.n, arnold.s)
     proj.R0, = qr(proj.R0)
   end
+  proj.M = Matrix{eltype(arnold.v)}(proj.s, proj.s)
   Ac_mul_B!(proj.M, proj.R0, unsafe_view(arnold.G, :, 1 : arnold.s))
+  arnold.permG = [1 : arnold.s...]
 end
 
 function nextIDRSpace!(proj::Projector, arnold::Arnoldi)
@@ -264,7 +266,9 @@ end
 
 # Updates the QR factorization of H
 function update!(hes::Hessenberg, proj::Projector, iter)
-  axpy!(-proj.μ, proj.u, unsafe_view(hes.r, 2 : hes.s + 1))
+  cycle!(hes)
+
+  axpy!(-proj.μ, proj.u, unsafe_view(hes.r, 2 + hes.s - proj.s : hes.s + 1))
   hes.r[end - 1] += proj.μ
 
   startIdx = max(1, hes.s + 3 - iter)
@@ -303,6 +307,7 @@ function updateGivens!(r, sine, cosine)
 end
 
 function cycle!(arnold::Arnoldi)
+
   pGEnd = arnold.permG[1]
   arnold.permG[1 : end - 1] = unsafe_view(arnold.permG, 2 : arnold.s)
   arnold.permG[end] = pGEnd
