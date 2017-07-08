@@ -11,17 +11,24 @@ type Identity end
 type Preconditioner end
 
 abstract type OrthType end
-
 type ClassicalGS <: OrthType
-  tol
 end
 type RepeatedClassicalGS <: OrthType
+  one
   tol
+  maxRepeat
 end
 type ModifiedGS <: OrthType
-  tol
 end
 
+abstract type SkewType end
+type RepeatSkew <: SkewType
+  one
+  tol
+  maxRepeat
+end
+type SingleSkew <: SkewType
+end
 
 type Projector
   j
@@ -32,8 +39,9 @@ type Projector
   m
   κ
   orthSearch
+  skewT
 
-  Projector(n, s, R0, κ, orthSearch, T) = new(0, zero(T), zeros(T, s, s), R0, zeros(T, s), Vector{T}(s), κ, orthSearch)
+  Projector(n, s, R0, κ, orthSearch, skewT, T) = new(0, zero(T), zeros(T, s, s), R0, zeros(T, s), Vector{T}(s), κ, orthSearch, skewT)
 end
 
 type Hessenberg
@@ -79,34 +87,10 @@ type Solution
 end
 
 
-function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = [], orthTol = one(real(eltype(b))) / √2, orthSearch = false, kappa = 0.7, orth = "MGS")
-  if length(R0) > 0 && size(R0) != (length(b), s)
-    error("size(R0) != [", length(b), ", $s] (User provided shadow residuals are of incorrect size)")
-  end
-  if length(x0) == 0
-    x0 = zeros(b)
-    r0 = b
-  else
-    r0 = b - A * x
-  end
-  if orth == "RCGS"
-    orthT = RepeatedClassicalGS(orthTol)
-  elseif orth == "CGS"
-    orthT = ClassicalGS(orthTol)
-  elseif orth == "MGS"
-    orthT = ModifiedGS(orthTol)
-  end
-  rho0 = vecnorm(r0)
-  hessenberg = Hessenberg(size(b, 1), s, eltype(b), rho0)
-  arnoldi = Arnoldi(A, P, r0 / rho0, orthT, size(b, 1), s, eltype(b))
-  arnoldi.W[:, 1] = 0.          # TODO put inside arnoldi constructor
-  arnoldi.G[:, 1] = r0 / rho0   # TODO put inside arnoldi constructor
-  solution = Solution(x0, rho0, tol)
-  projector = Projector(size(b, 1), s, R0, kappa, orthSearch, eltype(b))
+function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = [], orthTol = eps(real(eltype(b))), orthSearch = false, kappa = 0.7, orth = "MGS", skewRepeat = 1, orthRepeat = 3)
 
   iter = 0
-  stopped = false
-
+  solution, arnoldi, hessenberg, projector = initMethod(A, b, s, tol, maxIt, x0, P, R0, orthTol, orthSearch, kappa, orth, skewRepeat, orthRepeat)
   # Iteratively construct the generalized Hessenberg decomposition of A:
   #   A * G * U = G * H,
   # and approximately solve A * x = b by minimizing the upperbound for
@@ -117,7 +101,7 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
   #     "Flexible and multi‐shift induced dimension reduction algorithms for solving large sparse linear systems."
   #     Numerical Linear Algebra with Applications 22.1 (2015): 1-25.
   #
-  while !stopped
+  while true
     for k in 1 : s + 1
       iter += 1
 
@@ -154,26 +138,62 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
       # Update x <- x + Q(1, end) * w
       update!(solution, arnoldi, hessenberg, projector, k)
       if isConverged(solution) || iter == maxIt
-        stopped = true
-        break
+        return solution.x, solution.ρ
       end
     end
   end
 
-  return solution.x, solution.ρ
+end
+
+function initMethod(A, b, s, tol, maxIt, x0, P, R0, orthTol, orthSearch, kappa, orth, skewRepeat, orthRepeat)
+  if length(R0) > 0 && size(R0) != (length(b), s)
+    error("size(R0) != [", length(b), ", $s] (User provided shadow residuals are of incorrect size)")
+  end
+
+  if length(x0) == 0
+    x0 = zeros(b)
+    r0 = b
+  else
+    r0 = b - A * x
+  end
+
+  orthOne = one(real(eltype(b))) / √2
+
+  if orth == "RCGS"
+    orthT = RepeatedClassicalGS(orthOne, orthTol, orthRepeat)
+  elseif orth == "CGS"
+    orthT = ClassicalGS()
+  elseif orth == "MGS"
+    orthT = ModifiedGS()
+  end
+
+  if skewRepeat == 1
+    skewT = SingleSkew()
+  else
+    skewT = RepeatSkew(orthOne, orthTol, skewRepeat)
+  end
+  rho0 = vecnorm(r0)
+  hessenberg = Hessenberg(size(b, 1), s, eltype(b), rho0)
+  arnoldi = Arnoldi(A, P, r0 / rho0, orthT, size(b, 1), s, eltype(b))
+  arnoldi.W[:, 1] = 0.
+  arnoldi.G[:, 1] = r0 / rho0
+  solution = Solution(x0, rho0, tol)
+  projector = Projector(size(b, 1), s, R0, kappa, orthSearch, skewT, eltype(b))
+
+  return solution, arnoldi, hessenberg, projector
 end
 
 # Maps v -> v - G * (R0' * G)^-1 * R0 * v
 function apply!(proj::Projector, arnold::Arnoldi, k)
   lu = lufact(proj.M)
 
-  skewProject!(arnold.v, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), proj.R0, lu, proj.u, arnold.s - k + 2 : arnold.s, 1 : arnold.s - k + 1, arnold.permG, proj.m, arnold.orthT)
+  skewProject!(arnold.v, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), proj.R0, lu, proj.u, arnold.s - k + 2 : arnold.s, 1 : arnold.s - k + 1, arnold.permG, proj.m, proj.skewT)
 
   proj.M[:, arnold.permG[1]] = proj.m
 
 end
 
-function skewProject!(v, G1, G2, R0, lu, u, idx1, idx2, perm, m, orthT)
+function skewProject!(v, G1, G2, R0, lu, u, idx1, idx2, perm, m, skewT::RepeatSkew)
   Ac_mul_B!(m, R0, v)
   A_ldiv_B!(u, lu, m)
   u[:] = u[perm]
@@ -181,11 +201,15 @@ function skewProject!(v, G1, G2, R0, lu, u, idx1, idx2, perm, m, orthT)
   gemv!('N', -1.0, G1, unsafe_view(u, idx1), 1.0, v)
   gemv!('N', -1.0, G2, unsafe_view(u, idx2), 1.0, v)
 
+  happy = vecnorm(v) < skewT.one * vecnorm(u)
+
+  if happy return end
+
   mUpdate = zeros(m)
-  Ac_mul_B!(mUpdate, R0, v)
-  if vecnorm(v) > orthT.tol * vecnorm(m)
+  uUpdate = zeros(u)
+  for idx = 2 : skewT.maxRepeat
     # Repeat projection
-    uUpdate = zeros(u)
+    Ac_mul_B!(mUpdate, R0, v)
     A_ldiv_B!(uUpdate, lu, mUpdate)
     uUpdate[:] = uUpdate[perm]
 
@@ -194,10 +218,13 @@ function skewProject!(v, G1, G2, R0, lu, u, idx1, idx2, perm, m, orthT)
 
     axpy!(1.0, mUpdate, m)
     axpy!(1.0, uUpdate, u)
+
+    happy = vecnorm(v) > skewT.one * vecnorm(uUpdate)
+    if happy break end
   end
 end
 
-function skewProject!(v, G1, G2, R0, lu, u, idx1, idx2, perm, m, orthT::ClassicalGS)
+function skewProject!(v, G1, G2, R0, lu, u, idx1, idx2, perm, m, skewT::SingleSkew)
   Ac_mul_B!(m, R0, v)
   A_ldiv_B!(u, lu, m)
   u[:] = u[perm]
@@ -295,7 +322,6 @@ function expand!(arnold::Arnoldi, proj::Projector, k)
   if proj.orthSearch && proj.j == 0
     # First s steps we project orthogonal to R0 by using a flexible preconditioner
     orthogonalize!(arnold.vhat, proj.R0, arnold.α, arnold.orthT)
-    println(vecnorm(proj.R0' * arnold.vhat))
   end
   A_mul_B!(unsafe_view(arnold.G, :, arnold.lastIdx), arnold.A, arnold.vhat)
 end
@@ -315,6 +341,7 @@ function updateG!(arnold::Arnoldi, hes::Hessenberg, k)
 
   hes.r[:] = 0.
   aIdx = arnold.lastIdx
+
   if k < arnold.s + 1
     hes.r[end] = orthogonalize!(unsafe_view(arnold.G, :, aIdx), unsafe_view(arnold.G, :, 1 : k), unsafe_view(hes.r, arnold.s + 3 - k : arnold.s + 2), arnold.orthT)
   else
@@ -336,30 +363,32 @@ end
 # Orthogonalize g w.r.t. G, and store coeffs in h (NB g is not normalized)
 function orthogonalize!(g, G, h, orthT::RepeatedClassicalGS)
   Ac_mul_B!(h, G, g)
+  # println(0, ", normG = ", vecnorm(g), ", normH = ", vecnorm(h))
   gemv!('N', -1.0, G, h, 1.0, g)
 
-  α = vecnorm(g)
-  β = vecnorm(h)
+  normG = vecnorm(g)
+  normH = vecnorm(h)
 
-  happy = α < orthT.tol * β
-  if happy return α end
+  happy = normG < orthT.one * normH || normH < orthT.tol * normG
+  # println(1, ", normG = ", normG, ", normH = ", vecnorm(G' * g))
+  if happy return normG end
 
-  for idx = 2 : 5
-    γ = copy(h)
+  for idx = 2 : orthT.maxRepeat
+    updateH = Vector(h)
 
-    Ac_mul_B!(γ, G, g)
-    gemv!('N', -1.0, G, γ, 1.0, g)
+    Ac_mul_B!(updateH, G, g)
+    gemv!('N', -1.0, G, updateH, 1.0, g)
 
-    axpy!(1.0, γ, h)
+    axpy!(1.0, updateH, h)
 
-    α = vecnorm(g)
-    β = vecnorm(γ)
-    happy = α < orthT.tol * β
-
+    normG = vecnorm(g)
+    normH = vecnorm(updateH)
+    # println(idx, ", normG = ", normG, ", normH = ", normH)
+    happy = normG < orthT.one * normH || normH < orthT.tol * normG
     if happy break end
   end
 
-  return α
+  return normG
 end
 
 function orthogonalize!(g, G, h, orthT::ModifiedGS)
