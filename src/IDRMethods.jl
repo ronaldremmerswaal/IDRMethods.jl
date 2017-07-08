@@ -194,13 +194,14 @@ function apply!(proj::Projector, arnold::Arnoldi)
   lu = lufact(proj.M)
 
   # Columns of M correspond to G[:, j], where
-  #   j = 1 : latestIdx - 1, oldestIdx : arnold.s + 1
-  # if oldestIdx > latestIdx, and otherwise
-  #   j = oldestIdx : latestIdx - 1
+  #   j = 1 : arnold.latestIdx - 1, proj.oldestIdx : arnold.s + 1
+  # if proj.oldestIdx > arnold.latestIdx, and otherwise
+  #   j = proj.oldestIdx : arnold.latestIdx - 1
 
   # NB if arnold.s == proj.s we can always use
-  #   j = 1 : latestIdx - 1, latestIdx + 1 : arnold.s + 1
+  #   j = 1 : arnold.latestIdx - 1, arnold.latestIdx + 1 : arnold.s + 1
 
+  proj.latestIdx = proj.latestIdx == proj.s ? 1 : proj.latestIdx + 1
   if arnold.latestIdx == 1
     skewProject!(arnold.v, unsafe_view(arnold.G, :, proj.oldestIdx : arnold.s + 1), proj.R0, lu, proj.u, unsafe_view(proj.gToMIdx, proj.oldestIdx : arnold.s + 1), unsafe_view(proj.M, :, proj.latestIdx), proj.skewT)
   elseif proj.oldestIdx < arnold.latestIdx
@@ -213,7 +214,6 @@ function apply!(proj::Projector, arnold::Arnoldi)
   proj.gToMIdx[arnold.latestIdx] = proj.latestIdx
   proj.gToMIdx[proj.oldestIdx] = 0  # NB Only to find bugs easier...
 
-  proj.latestIdx = proj.latestIdx == proj.s ? 1 : proj.latestIdx + 1
   proj.oldestIdx = proj.oldestIdx > arnold.s ? 1 : proj.oldestIdx + 1
 end
 
