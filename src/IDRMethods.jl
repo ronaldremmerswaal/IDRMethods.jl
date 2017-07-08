@@ -151,9 +151,9 @@ function initMethod(A, b, s, tol, maxIt, x0, P, R0, orthTol, orthSearch, kappa, 
 
   if length(x0) == 0
     x0 = zeros(b)
-    r0 = b
+    r0 = copy(b)
   else
-    r0 = b - A * x
+    r0 = b - A * x0
   end
 
   orthOne = one(real(eltype(b))) / √2
@@ -172,10 +172,11 @@ function initMethod(A, b, s, tol, maxIt, x0, P, R0, orthTol, orthSearch, kappa, 
     skewT = RepeatSkew(orthOne, orthTol, skewRepeat)
   end
   rho0 = vecnorm(r0)
+  scale!(r0, 1.0 / rho0)
   hessenberg = Hessenberg(size(b, 1), s, eltype(b), rho0)
-  arnoldi = Arnoldi(A, P, r0 / rho0, orthT, size(b, 1), s, eltype(b))
-  arnoldi.W[:, 1] = 0.
-  arnoldi.G[:, 1] = r0 / rho0
+  arnoldi = Arnoldi(A, P, r0, orthT, size(b, 1), s, eltype(b))
+  arnoldi.W[:, 1] = 0.0
+  arnoldi.G[:, 1] = r0
   solution = Solution(x0, rho0, tol)
   projector = Projector(size(b, 1), s, R0, kappa, orthSearch, skewT, eltype(b))
 
@@ -187,7 +188,7 @@ function apply!(proj::Projector, arnold::Arnoldi, k)
 
   lu = lufact(proj.M)
 
-  skewProject!(arnold.v, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), proj.R0, lu, proj.u, arnold.s - k + 2 : arnold.s, 1 : arnold.s - k + 1, proj.colPerm, proj.m, proj.skewT)
+  skewProject!(arnold.v, unsafe_view(arnold.G, :, 1 : arnold.lastIdx - 1), unsafe_view(arnold.G, :, arnold.lastIdx + 1 : arnold.s + 1), proj.R0, lu, proj.u, proj.s - k + 2 : proj.s, 1 : proj.s - k + 1, proj.colPerm, proj.m, proj.skewT)
 
   proj.M[:, proj.colPerm[1]] = proj.m
   cycle!(proj)
@@ -236,11 +237,11 @@ end
 function initialize!(proj::Projector, arnold::Arnoldi)
   if length(proj.R0) == 0
     # NB if user provided R0, then we assume it is orthogonalized already!
-    proj.R0 = rand(arnold.n, arnold.s)
+    proj.R0 = rand(proj.n, proj.s)
     proj.R0, = qr(proj.R0)
   end
   proj.M = Matrix{eltype(arnold.v)}(proj.s, proj.s)
-  Ac_mul_B!(proj.M, proj.R0, unsafe_view(arnold.G, :, 1 : arnold.s))
+  Ac_mul_B!(proj.M, proj.R0, unsafe_view(arnold.G, :, arnold.s - proj.s + 1 : arnold.s))
   proj.colPerm = [1 : proj.s...]
 end
 
