@@ -72,13 +72,12 @@ type Arnoldi
   v           # last projected orthogonal to R0
   vhat
 
-  α
   latestIdx   # Index in G corresponding to latest g
 
   orthT
 
   # TODO how many n-vectors do we need? (g, v, vhat)
-  Arnoldi(A, P, g, orthT, n, s, T) = new(A, P, Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), Vector{T}(s), 1, orthT)
+  Arnoldi(A, P, g, orthT, n, s, T) = new(A, P, Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), 1, orthT)
 end
 
 type Solution
@@ -147,7 +146,7 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
 end
 
 function initMethod(A, b, s, tol, maxIt, x0, P, R0, orthTol, orthSearch, kappa, orth, skewRepeat, orthRepeat, projDim)
-  if length(R0) > 0 && size(R0) != (length(b), s)
+  if length(R0) > 0 && size(R0) != (length(b), projDim)
     error("size(R0) != [", length(b), ", $s] (User provided shadow residuals are of incorrect size)")
   end
   if projDim > s
@@ -357,7 +356,8 @@ function expand!(arnold::Arnoldi, proj::Projector)
   evalPrecon!(arnold.vhat, arnold.P, arnold.v)
   if proj.orthSearch && proj.j == 0
     # First s steps we project orthogonal to R0 by using a flexible preconditioner
-    orthogonalize!(arnold.vhat, proj.R0, arnold.α, arnold.orthT)
+    α = zeros(eltype(arnold.vhat), proj.s)
+    orthogonalize!(arnold.vhat, proj.R0, α, arnold.orthT)
   end
   A_mul_B!(unsafe_view(arnold.G, :, arnold.latestIdx), arnold.A, arnold.vhat)
 end
