@@ -108,20 +108,20 @@ end
 
 
 # To ensure contiguous memory, we often have to split the projections in 2 blocks
-function skewProject!(v, G1, G2, R0, lu, u, uIdx1, uIdx2, m, skewT::SingleSkew)
+function skewProject!(v, G1, G2, R0, lu, α, u, uIdx1, uIdx2, m, skewT::SingleSkew)
   Ac_mul_B!(m, R0, v)
-  A_ldiv_B!(u, lu, m)
+  A_ldiv_B!(α, lu, m)
 
-  u[:] = u[[uIdx1; uIdx2]]
+  copy!(u, α[[uIdx1; uIdx2]])
   gemv!('N', -1.0, G1, u[1 : length(uIdx1)], 1.0, v)
   gemv!('N', -1.0, G2, u[length(uIdx1) + 1 : end], 1.0, v)
 end
 
-function skewProject!(v, G, R0, lu, u, uIdx, m, skewT::SingleSkew)
+function skewProject!(v, G, R0, lu, α, u, uIdx, m, skewT::SingleSkew)
   Ac_mul_B!(m, R0, v)
-  A_ldiv_B!(u, lu, m)
+  A_ldiv_B!(α, lu, m)
 
-  u[:] = u[uIdx]
+  copy!(u, α[uIdx])
   gemv!('N', -1.0, G, u, 1.0, v)
 end
 
