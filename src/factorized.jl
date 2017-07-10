@@ -18,7 +18,7 @@ end
 
 # Replaces the idx-th column of M with m, where u = M \ m is provided
 function replaceColumn!(F::Factorized, colIdx::Int, m, u)
-  copy!(F.M[:, colIdx], m)
+  F.M[:, colIdx] = m
 
   if F.nrUpdates == F.maxNrUpdates
     F.lu = lufact(F.M)
