@@ -18,7 +18,7 @@ end
 
 # Replaces the idx-th column of M with m, where u = M \ m is provided
 function replaceColumn!(F::Factorized, colIdx::Int, m, u)
-  F.M[:, colIdx] = m
+  copy!(F.M[:, colIdx], m)
 
   if F.nrUpdates == F.maxNrUpdates
     F.lu = lufact(F.M)
@@ -31,6 +31,7 @@ function replaceColumn!(F::Factorized, colIdx::Int, m, u)
   F.U[colIdx, F.nrUpdates] -= 1.
   scale!(unsafe_view(F.U, :, F.nrUpdates), 1. / u[colIdx])
   F.updateIdxToCol[F.nrUpdates] = colIdx
+
 end
 
 function replaceColumn!(F::Factorized, colIdx::Int, m)

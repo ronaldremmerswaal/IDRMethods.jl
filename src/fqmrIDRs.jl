@@ -134,7 +134,7 @@ function nextIDRSpace!(proj::Projector, idrSpace::FQMRSpace)
   τ = vecdot(unsafe_view(idrSpace.G, :, idrSpace.latestIdx), unsafe_view(idrSpace.G, :, idrSpace.latestIdx))
 
   ω = ν / τ
-  η = ν / (sqrt(τ) * norm(idrSpace.v))
+  η = ν / (sqrt(τ) * vecnorm(idrSpace.v))
   if abs(η) < proj.κ
     ω *= proj.κ / abs(η)
   end
