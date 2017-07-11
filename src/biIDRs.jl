@@ -63,9 +63,16 @@ end
 # Maps v -> v - G * (R0' * G)^-1 * R0 * v
 function apply!(proj::BiOProjector, idr::BiOSpace)
   k = idr.latestIdx == idr.s + 1 ? 1 : idr.latestIdx + 1
-  # TODO More efficiently if j = 0 (then only one nontrivial column)
+  
   if k <= idr.s
-    proj.α[k : idr.s] = LowerTriangular(proj.M[k : proj.s, k : proj.s]) \ unsafe_view(proj.m, k : proj.s)
+    if proj.j == 0
+      proj.α[k : proj.s] = unsafe_view(proj.m, k : proj.s)
+      proj.α[k] = proj.α[k] / proj.M[k, k]
+      axpy!(proj.α[k], unsafe_view(proj.M, k + 1 : proj.s, k), unsafe_view(proj.α, k + 1 : proj.s))
+    else
+      # proj.α[k : idr.s] = LowerTriangular(proj.M[k : proj.s, k : proj.s]) \ unsafe_view(proj.m, k : proj.s)
+      lowerBlockSolve!(proj.α, proj.M, proj.m, k : proj.s)
+    end
     if proj.j > 0
       gemv!('N', -1.0, unsafe_view(idr.G, :, k : idr.s), unsafe_view(proj.α, k : idr.s), 1.0, idr.v)
     end
@@ -110,12 +117,15 @@ function update!(proj::BiOProjector, idr::BiOSpace)
   k = idr.latestIdx == idr.s + 1 ? 1 : idr.latestIdx + 1
 
   if k == 1
-    gemv!('C', 1.0, proj.R0, idr.r, 0.0, proj.m)
+    # gemv!('C', 1.0, proj.R0, idr.r, 0.0, proj.m)
+    Ac_mul_B!(proj.m, proj.R0, idr.r)
   end
 
   if k > 1
     # Update it
-    gemv!('C', 1.0, unsafe_view(proj.R0, :, k : idr.s), unsafe_view(idr.G, :, k - 1), 0.0, unsafe_view(proj.M, k : idr.s, k - 1))
+
+    # gemv!('C', 1.0, unsafe_view(proj.R0, :, k : idr.s), unsafe_view(idr.G, :, k - 1), 0.0, unsafe_view(proj.M, k : idr.s, k - 1))
+    Ac_mul_B!(unsafe_view(proj.M, k : idr.s, k - 1), unsafe_view(proj.R0, :, k : idr.s), unsafe_view(idr.G, :, k - 1))
     proj.M[k - 1, k - 1] = proj.diagM[k - 1]
     if k <= idr.s
       axpy!(-idr.β, unsafe_view(proj.M, k : idr.s, k - 1), unsafe_view(proj.m, k : idr.s))
