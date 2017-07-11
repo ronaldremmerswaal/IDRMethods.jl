@@ -21,6 +21,23 @@ end
 type SingleSkew <: SkewType
 end
 
+function nextIDRSpace!(proj::Projector, idr::IDRSpace)
+  proj.j += 1
+
+  # Compute residual minimizing μ
+  ν = vecdot(unsafe_view(idr.G, :, idr.latestIdx), idr.v)
+  τ = vecdot(unsafe_view(idr.G, :, idr.latestIdx), unsafe_view(idr.G, :, idr.latestIdx))
+
+  proj.ω = ν / τ
+  η = ν / (sqrt(τ) * vecnorm(idr.v))
+  if abs(η) < proj.κ
+    proj.ω *= proj.κ / abs(η)
+  end
+  # TODO condest(A)? instead of 1.
+  proj.μ = abs(proj.ω) > eps(real(eltype(idr.v))) ? 1. / proj.ω : 1.
+
+end
+
 function orthogonalize!(g, G, h, orthT::ClassicalGS)
   Ac_mul_B!(h, G, g)
   gemv!('N', -1.0, G, h, 1.0, g)

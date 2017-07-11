@@ -13,8 +13,38 @@ type FQMRSpace <: IDRSpace
 
   orthT
 
+  r
+  cosine
+  sine
+  ϕ
+  φ
+
   # TODO how many n-vectors do we need? (g, v, vhat)
-  FQMRSpace(A, P, g, orthT, n, s, T) = new(A, P, Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), 1, orthT)
+  FQMRSpace(A, P, g, rho0, orthT, n, s, T) = new(A, P, Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), 1, orthT, zeros(T, s + 3), zeros(T, s + 2), zeros(T, s + 2), zero(T), rho0)
+end
+
+type FQMRProjector <: Projector
+  n
+  s
+  j
+  μ
+  ω
+  M
+  m
+  α
+  R0
+  u
+  κ
+  orthSearch
+  skewT
+
+  latestIdx
+  oldestIdx   # Index in G corresponding to oldest column in M
+  gToMIdx     # Maps from G idx to M idx
+
+  lu
+
+  FQMRProjector(n, s, R0, κ, orthSearch, skewT, T) = new(n, s, 0, zero(T), zero(T), [], zeros(T, s), zeros(T, s), R0, zeros(T, s), κ, orthSearch, skewT, 0, 0, [], [])
 end
 
 # Iteratively construct the generalized Hessenberg decomposition of A:
@@ -60,157 +90,142 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
   end
   rho0 = vecnorm(r0)
   scale!(r0, 1.0 / rho0)
-  hessenberg = Hessenberg(size(b, 1), s, eltype(b), rho0)
-  idrSpace = FQMRSpace(A, P, r0, orthT, size(b, 1), s, eltype(b))
+  idrSpace = FQMRSpace(A, P, r0, rho0, orthT, size(b, 1), s, eltype(b))
   idrSpace.W[:, 1] = 0.0
   idrSpace.G[:, 1] = r0
   solution = Solution(x0, rho0, tol)
-  projector = Projector(size(b, 1), projDim, R0, kappa, orthSearch, skewT, eltype(b))
+  projector = FQMRProjector(size(b, 1), projDim, R0, kappa, orthSearch, skewT, eltype(b))
 
-  return IDRMethod(solution, idrSpace, hessenberg, projector, maxIt)
+  return IDRMethod(solution, idrSpace, projector, maxIt)
 
 end
 
 # Maps v -> v - G * (R0' * G)^-1 * R0 * v
-function apply!(proj::Projector, idrSpace::FQMRSpace)
+function apply!(proj::FQMRProjector, idr::FQMRSpace)
+  if proj.j == 0 && idr.latestIdx <= idr.s
+    return
+  end
 
   # Columns of M correspond to G[:, j], where
-  #   j = 1 : idrSpace.latestIdx - 1, proj.oldestIdx : idrSpace.s + 1
-  # if proj.oldestIdx > idrSpace.latestIdx, and otherwise
-  #   j = proj.oldestIdx : idrSpace.latestIdx - 1
+  #   j = 1 : idr.latestIdx - 1, proj.oldestIdx : idr.s + 1
+  # if proj.oldestIdx > idr.latestIdx, and otherwise
+  #   j = proj.oldestIdx : idr.latestIdx - 1
 
-  # NB if idrSpace.s == proj.s we can always use
-  #   j = 1 : idrSpace.latestIdx - 1, idrSpace.latestIdx + 1 : idrSpace.s + 1
+  # NB if idr.s == proj.s we can always use
+  #   j = 1 : idr.latestIdx - 1, idr.latestIdx + 1 : idr.s + 1
 
   proj.latestIdx = proj.latestIdx == proj.s ? 1 : proj.latestIdx + 1
-  if idrSpace.latestIdx == 1
-    skewProject!(idrSpace.v, unsafe_view(idrSpace.G, :, proj.oldestIdx : idrSpace.s + 1), proj.R0, proj.M, proj.α, proj.u, unsafe_view(proj.gToMIdx, proj.oldestIdx : idrSpace.s + 1), proj.m, proj.skewT)
-  elseif proj.oldestIdx < idrSpace.latestIdx
-    skewProject!(idrSpace.v, unsafe_view(idrSpace.G, :, proj.oldestIdx : idrSpace.latestIdx - 1), proj.R0, proj.M, proj.α, proj.u, unsafe_view(proj.gToMIdx, proj.oldestIdx : idrSpace.latestIdx - 1), proj.m, proj.skewT)
+  if idr.latestIdx == 1
+    skewProject!(idr.v, unsafe_view(idr.G, :, proj.oldestIdx : idr.s + 1), proj.R0, proj.M, proj.α, proj.u, unsafe_view(proj.gToMIdx, proj.oldestIdx : idr.s + 1), proj.m, proj.skewT)
+  elseif proj.oldestIdx < idr.latestIdx
+    skewProject!(idr.v, unsafe_view(idr.G, :, proj.oldestIdx : idr.latestIdx - 1), proj.R0, proj.M, proj.α, proj.u, unsafe_view(proj.gToMIdx, proj.oldestIdx : idr.latestIdx - 1), proj.m, proj.skewT)
   else
-    skewProject!(idrSpace.v, unsafe_view(idrSpace.G, :, proj.oldestIdx : idrSpace.s + 1), unsafe_view(idrSpace.G, :, 1 : idrSpace.latestIdx - 1), proj.R0, proj.M, proj.α, proj.u, unsafe_view(proj.gToMIdx, proj.oldestIdx : idrSpace.s + 1), unsafe_view(proj.gToMIdx, 1 : idrSpace.latestIdx - 1), proj.m, proj.skewT)
+    skewProject!(idr.v, unsafe_view(idr.G, :, proj.oldestIdx : idr.s + 1), unsafe_view(idr.G, :, 1 : idr.latestIdx - 1), proj.R0, proj.M, proj.α, proj.u, unsafe_view(proj.gToMIdx, proj.oldestIdx : idr.s + 1), unsafe_view(proj.gToMIdx, 1 : idr.latestIdx - 1), proj.m, proj.skewT)
   end
 
   # Update permutations
-  proj.gToMIdx[idrSpace.latestIdx] = proj.latestIdx
+  proj.gToMIdx[idr.latestIdx] = proj.latestIdx
   proj.gToMIdx[proj.oldestIdx] = 0  # NB Only to find bugs easier...
 
-  proj.oldestIdx = proj.oldestIdx > idrSpace.s ? 1 : proj.oldestIdx + 1
+  proj.oldestIdx = proj.oldestIdx > idr.s ? 1 : proj.oldestIdx + 1
 
 end
 
-function update!(proj::Projector, idrSpace::FQMRSpace)
-  if proj.j == 0
-    initialize!(proj, idrSpace)
-  else
-    # proj.M[:, proj.latestIdx] = proj.m
+function update!(proj::FQMRProjector, idr::FQMRSpace)
+  if proj.j == 0 && idr.latestIdx == idr.s
+    initialize!(proj, idr)
+  elseif proj.j > 0
     replaceColumn!(proj.M, proj.latestIdx, proj.m, proj.α)
   end
-
-  # proj.lu = lufact(proj.M)
 end
 
-function initialize!(proj::Projector, idrSpace::FQMRSpace)
+function initialize!(proj::FQMRProjector, idr::FQMRSpace)
   if length(proj.R0) == 0
     proj.R0 = rand(proj.n, proj.s)
     proj.R0, = qr(proj.R0)
   end
-  proj.M = Matrix{eltype(idrSpace.v)}(proj.s, proj.s)
-  Ac_mul_B!(proj.M, proj.R0, unsafe_view(idrSpace.G, :, idrSpace.s - proj.s + 1 : idrSpace.s))
+  proj.M = Matrix{eltype(idr.v)}(proj.s, proj.s)
+  Ac_mul_B!(proj.M, proj.R0, unsafe_view(idr.G, :, idr.s - proj.s + 1 : idr.s))
   proj.M = Factorized(proj.M, proj.s - 1)   # NB allow for s - 1 column updates before recomputing lu factorization
 
   proj.latestIdx = proj.s
-  proj.oldestIdx = idrSpace.s - proj.s + 1
+  proj.oldestIdx = idr.s - proj.s + 1
 
-  proj.gToMIdx = zeros(Int64, idrSpace.s + 1)
-  proj.gToMIdx[idrSpace.s - proj.s + 1 : idrSpace.s] = 1 : proj.s
+  proj.gToMIdx = zeros(Int64, idr.s + 1)
+  proj.gToMIdx[idr.s - proj.s + 1 : idr.s] = 1 : proj.s
 end
 
-function nextIDRSpace!(proj::Projector, idrSpace::FQMRSpace)
-  proj.j += 1
+function expand!(idr::FQMRSpace, proj::FQMRProjector)
+  idr.latestIdx = idr.latestIdx > idr.s ? 1 : idr.latestIdx + 1
 
-  # Compute residual minimizing μ
-  ν = vecdot(unsafe_view(idrSpace.G, :, idrSpace.latestIdx), idrSpace.v)
-  τ = vecdot(unsafe_view(idrSpace.G, :, idrSpace.latestIdx), unsafe_view(idrSpace.G, :, idrSpace.latestIdx))
 
-  ω = ν / τ
-  η = ν / (sqrt(τ) * vecnorm(idrSpace.v))
-  if abs(η) < proj.κ
-    ω *= proj.κ / abs(η)
+  evalPrecon!(idr.vhat, idr.P, idr.v)
+  if proj.orthSearch && proj.j == 0
+    # First s steps we project orthogonal to R0 by using a flexible preconditioner
+    α = zeros(eltype(idr.vhat), proj.s)
+    orthogonalize!(idr.vhat, proj.R0, α, idr.orthT)
   end
-  # TODO condest(A)? instead of 1.
-  proj.μ = abs(ω) > eps(real(eltype(idrSpace.v))) ? 1. / ω : 1.
-
+  A_mul_B!(unsafe_view(idr.G, :, idr.latestIdx), idr.A, idr.vhat)
 end
 
-function cycle!(hes::Hessenberg)
-  hes.cosine[1 : end - 1] = unsafe_view(hes.cosine, 2 : hes.s + 2)
-  hes.sine[1 : end - 1] = unsafe_view(hes.sine, 2 : hes.s + 2)
+function update!(idr::FQMRSpace, proj::FQMRProjector, k, iter)
+  updateG!(idr, k)
+  updateHes!(idr, proj, iter)
+  updateW!(idr, k, iter)
+end
+
+function updateG!(idr::FQMRSpace, k)
+
+  idr.r[:] = 0.
+  aIdx = idr.latestIdx
+
+  if k < idr.s + 1
+    idr.r[end] = orthogonalize!(unsafe_view(idr.G, :, aIdx), unsafe_view(idr.G, :, 1 : k), unsafe_view(idr.r, idr.s + 3 - k : idr.s + 2), idr.orthT)
+  else
+    idr.r[end] = vecnorm(unsafe_view(idr.G, :, aIdx))
+  end
+
+  scale!(unsafe_view(idr.G, :, aIdx), 1 / idr.r[end])
+  copy!(idr.v, unsafe_view(idr.G, :, aIdx))
+
 end
 
 # Updates the QR factorization of H
-function update!(hes::Hessenberg, proj::Projector, iter)
-  cycle!(hes)
+function updateHes!(idr::FQMRSpace, proj::FQMRProjector, iter)
+  idr.cosine[1 : end - 1] = unsafe_view(idr.cosine, 2 : idr.s + 2)
+  idr.sine[1 : end - 1] = unsafe_view(idr.sine, 2 : idr.s + 2)
 
-  axpy!(-proj.μ, proj.u, unsafe_view(hes.r, 2 + hes.s - proj.s : hes.s + 1))
-  hes.r[end - 1] += proj.μ
+  axpy!(-proj.μ, proj.u, unsafe_view(idr.r, 2 + idr.s - proj.s : idr.s + 1))
+  idr.r[end - 1] += proj.μ
 
-  startIdx = max(1, hes.s + 3 - iter)
-  applyGivens!(unsafe_view(hes.r, startIdx : hes.s + 2), unsafe_view(hes.sine, startIdx : hes.s + 1), unsafe_view(hes.cosine, startIdx : hes.s + 1))
+  startIdx = max(1, idr.s + 3 - iter)
 
-  updateGivens!(hes.r, hes.sine, hes.cosine)
+  applyGivens!(unsafe_view(idr.r, startIdx : idr.s + 2), unsafe_view(idr.sine, startIdx : idr.s + 1), unsafe_view(idr.cosine, startIdx : idr.s + 1))
+  updateGivens!(idr.r, idr.sine, idr.cosine)
 
-  hes.ϕ = hes.cosine[end] * hes.φ
-  hes.φ = -conj(hes.sine[end]) * hes.φ
+  idr.ϕ = idr.cosine[end] * idr.φ
+  idr.φ = -conj(idr.sine[end]) * idr.φ
 end
 
-function expand!(idrSpace::FQMRSpace, proj::Projector)
-  idrSpace.latestIdx = idrSpace.latestIdx > idrSpace.s ? 1 : idrSpace.latestIdx + 1
-  evalPrecon!(idrSpace.vhat, idrSpace.P, idrSpace.v)
-  if proj.orthSearch && proj.j == 0
-    # First s steps we project orthogonal to R0 by using a flexible preconditioner
-    α = zeros(eltype(idrSpace.vhat), proj.s)
-    orthogonalize!(idrSpace.vhat, proj.R0, α, idrSpace.orthT)
-  end
-  A_mul_B!(unsafe_view(idrSpace.G, :, idrSpace.latestIdx), idrSpace.A, idrSpace.vhat)
-end
-
-function updateW!(idrSpace::FQMRSpace, hes::Hessenberg, k, iter)
-  if iter > idrSpace.s
-    gemv!('N', -1.0, idrSpace.W, hes.r[[idrSpace.s + 2 - k : idrSpace.s + 1; 1 : idrSpace.s + 1 - k]], 1.0, idrSpace.vhat)
+function updateW!(idr::FQMRSpace, k, iter)
+  if iter > idr.s
+    gemv!('N', -1.0, idr.W, idr.r[[idr.s + 2 - k : idr.s + 1; 1 : idr.s + 1 - k]], 1.0, idr.vhat)
   else
-    gemv!('N', -1.0, unsafe_view(idrSpace.W, :, 1 : k), unsafe_view(hes.r, idrSpace.s + 2 - k : idrSpace.s + 1), 1.0, idrSpace.vhat)
+    gemv!('N', -1.0, unsafe_view(idr.W, :, 1 : k), unsafe_view(idr.r, idr.s + 2 - k : idr.s + 1), 1.0, idr.vhat)
   end
 
-  copy!(unsafe_view(idrSpace.W, :, idrSpace.latestIdx), idrSpace.vhat)
-  scale!(unsafe_view(idrSpace.W, :, idrSpace.latestIdx), 1 / hes.r[end - 1])
+  copy!(unsafe_view(idr.W, :, idr.latestIdx), idr.vhat)
+  scale!(unsafe_view(idr.W, :, idr.latestIdx), 1 / idr.r[end - 1])
 end
 
-function updateG!(idrSpace::FQMRSpace, hes::Hessenberg, k)
-
-  hes.r[:] = 0.
-  aIdx = idrSpace.latestIdx
-
-  if k < idrSpace.s + 1
-    hes.r[end] = orthogonalize!(unsafe_view(idrSpace.G, :, aIdx), unsafe_view(idrSpace.G, :, 1 : k), unsafe_view(hes.r, idrSpace.s + 3 - k : idrSpace.s + 2), idrSpace.orthT)
-  else
-    hes.r[end] = vecnorm(unsafe_view(idrSpace.G, :, aIdx))
-  end
-
-  scale!(unsafe_view(idrSpace.G, :, aIdx), 1 / hes.r[end])
-  copy!(idrSpace.v, unsafe_view(idrSpace.G, :, aIdx))
-
-end
-
-
-@inline function mapToIDRSpace!(idrSpace::FQMRSpace, proj::Projector)
+@inline function mapToIDRSpace!(idr::FQMRSpace, proj::FQMRProjector)
   if proj.j > 0
-    axpy!(-proj.μ, idrSpace.v, unsafe_view(idrSpace.G, :, idrSpace.latestIdx));
+    axpy!(-proj.μ, idr.v, unsafe_view(idr.G, :, idr.latestIdx));
   end
 end
 
 
-function update!(sol::Solution, idrSpace::FQMRSpace, hes::Hessenberg, proj::Projector, k)
-  axpy!(hes.ϕ, unsafe_view(idrSpace.W, :, idrSpace.latestIdx), sol.x)
-  push!(sol.ρ, abs(hes.φ) * sqrt(proj.j + 1.))
+function update!(sol::Solution, idr::FQMRSpace, proj::FQMRProjector)
+  axpy!(idr.ϕ, unsafe_view(idr.W, :, idr.latestIdx), sol.x)
+  push!(sol.ρ, abs(idr.φ) * sqrt(proj.j + 1.))
 end
