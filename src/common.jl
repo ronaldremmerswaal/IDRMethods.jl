@@ -223,15 +223,3 @@ end
 #     if happy break end
 #   end
 # end
-
-# Solves x(range) = M(range, range) \ b(range),
-# for indexing range range. M is assumed lower triangular
-function lowerBlockSolve!(x, M, b, range)
-  for i = range
-    x[i] = b[i]
-    for j = range[1] : i - 1
-      x[i] -= M[i, j] * x[j]
-    end
-    x[i] /= M[i, i]
-  end
-end

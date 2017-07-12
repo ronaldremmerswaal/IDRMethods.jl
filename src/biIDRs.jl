@@ -30,11 +30,10 @@ type BiOProjector <: Projector
   m
 
   R0
-  diagM
 
   κ
 
-  BiOProjector(n, s, R0, κ, T) = new(n, s, 0, zero(T), zero(T), eye(T, s), zeros(T, s), zeros(T, s), R0, ones(T, s), κ)
+  BiOProjector(n, s, R0, κ, T) = new(n, s, 0, zero(T), zero(T), eye(T, s), zeros(T, s), zeros(T, s), R0, κ)
 end
 
 function biIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = qr(rand(size(b, 1), min(size(b, 1), s)))[1], kappa = 0.7, smoothing = "MR")
@@ -71,13 +70,16 @@ function apply!(proj::BiOProjector, idr::BiOSpace)
   k = idr.latestIdx == idr.s + 1 ? 1 : idr.latestIdx + 1
 
   if k <= idr.s
+    proj.α[k : proj.s] = unsafe_view(proj.m, k : proj.s)
     if proj.j == 0
-      proj.α[k : proj.s] = unsafe_view(proj.m, k : proj.s)
       proj.α[k] = proj.α[k] / proj.M[k, k]
       axpy!(proj.α[k], unsafe_view(proj.M, k + 1 : proj.s, k), unsafe_view(proj.α, k + 1 : proj.s))
     else
-      # proj.α[k : idr.s] = LowerTriangular(proj.M[k : proj.s, k : proj.s]) \ unsafe_view(proj.m, k : proj.s)
-      lowerBlockSolve!(proj.α, proj.M, proj.m, k : proj.s)
+      for i = k : proj.s
+        for j = k : i - 1
+          proj.α[i] -= proj.M[i, j] * proj.α[j]
+        end
+      end
     end
     if proj.j > 0
       gemv!('N', -1.0, unsafe_view(idr.G, :, k : idr.s), unsafe_view(proj.α, k : idr.s), 1.0, idr.v)
@@ -108,14 +110,22 @@ function update!(idr::BiOSpace, proj::BiOProjector, k, iter)
     idr.β = proj.ω
   else
     # Biorthogonalise the pair R0, G
+    α = Vector{eltype(idr.v)}(k - 1)
     for j = 1 : k - 1
-      α = vecdot(unsafe_view(proj.R0, :, j), unsafe_view(idr.G, :, k)) / proj.diagM[j]
-      axpy!(-α, unsafe_view(idr.G, :, j), unsafe_view(idr.G, :, k))
-      axpy!(-α, unsafe_view(idr.W, :, j), unsafe_view(idr.W, :, k))
+      α[j] = vecdot(unsafe_view(proj.R0, :, j), unsafe_view(idr.G, :, k))
+      axpy!(-α[j], unsafe_view(idr.G, :, j), unsafe_view(idr.G, :, k))
     end
 
-    proj.diagM[k] = vecdot(unsafe_view(proj.R0, :, k), unsafe_view(idr.G, :, k))
-    idr.β = proj.m[k] / proj.diagM[k];
+    # And update W accordingly
+    gemv!('N', -1.0, unsafe_view(idr.W, :, 1 : k - 1), α, 1.0, unsafe_view(idr.W, :, k))
+
+    # NB Scale G such that diag(proj.M) = eye(s)
+    # TODO check if inner product nonzero..
+    tmp = vecdot(unsafe_view(proj.R0, :, k), unsafe_view(idr.G, :, k))
+    scale!(unsafe_view(idr.G, :, k), 1. / tmp)
+    scale!(unsafe_view(idr.W, :, k), 1 ./ tmp)
+
+    idr.β = proj.m[k]
   end
 end
 
@@ -123,16 +133,13 @@ function update!(proj::BiOProjector, idr::BiOSpace)
   k = idr.latestIdx == idr.s + 1 ? 1 : idr.latestIdx + 1
 
   if k == 1
-    # gemv!('C', 1.0, proj.R0, idr.r, 0.0, proj.m)
     Ac_mul_B!(proj.m, proj.R0, idr.v)
   end
 
   if k > 1
+    
     # Update it
-
-    # gemv!('C', 1.0, unsafe_view(proj.R0, :, k : idr.s), unsafe_view(idr.G, :, k - 1), 0.0, unsafe_view(proj.M, k : idr.s, k - 1))
     Ac_mul_B!(unsafe_view(proj.M, k : idr.s, k - 1), unsafe_view(proj.R0, :, k : idr.s), unsafe_view(idr.G, :, k - 1))
-    proj.M[k - 1, k - 1] = proj.diagM[k - 1]
     if k <= idr.s
       axpy!(-idr.β, unsafe_view(proj.M, k : idr.s, k - 1), unsafe_view(proj.m, k : idr.s))
     end
@@ -144,12 +151,12 @@ function update!(sol::NormalSolution, idr::BiOSpace, proj::BiOProjector)
   axpy!(-idr.β, unsafe_view(idr.G, :, idr.latestIdx), sol.r)
   axpy!(idr.β, unsafe_view(idr.W, :, idr.latestIdx), sol.x)
   push!(sol.ρ, vecnorm(sol.r))
-  idr.v = copy(sol.r)
+  copy!(idr.v, sol.r)
 end
 
 function update!(sol::QMRSmoothedSolution, idr::BiOSpace, proj::BiOProjector)
   axpy!(-idr.β, unsafe_view(idr.G, :, idr.latestIdx), sol.r)
-  idr.v = copy(sol.r)
+  copy!(idr.v, sol.r)
 
   # Residual smoothing
   axpy!(idr.β, unsafe_view(idr.G, :, idr.latestIdx), sol.u)
@@ -171,7 +178,7 @@ end
 
 function update!(sol::MRSmoothedSolution, idr::BiOSpace, proj::BiOProjector)
   axpy!(-idr.β, unsafe_view(idr.G, :, idr.latestIdx), sol.r)
-  idr.v = copy(sol.r)
+  copy!(idr.v, sol.r)
 
   # Residual smoothing
   axpy!(idr.β, unsafe_view(idr.G, :, idr.latestIdx), sol.u)
