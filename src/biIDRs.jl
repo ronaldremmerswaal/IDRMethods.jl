@@ -149,7 +149,6 @@ end
 
 function update!(sol::QMRSmoothedSolution, idr::BiOSpace, proj::BiOProjector)
   axpy!(-idr.β, unsafe_view(idr.G, :, idr.latestIdx), sol.r)
-  axpy!(idr.β, unsafe_view(idr.W, :, idr.latestIdx), sol.x)
   idr.v = copy(sol.r)
 
   # Residual smoothing
@@ -162,7 +161,7 @@ function update!(sol::QMRSmoothedSolution, idr::BiOSpace, proj::BiOProjector)
   ratio = sol.τ / sol.η
 
   axpy!(-ratio, sol.u, sol.s)
-  axpy!(ratio, sol.v, sol.y)
+  axpy!(ratio, sol.v, sol.x)
 
   scale!(sol.u, 1 - ratio)
   scale!(sol.v, 1 - ratio)
@@ -172,7 +171,6 @@ end
 
 function update!(sol::MRSmoothedSolution, idr::BiOSpace, proj::BiOProjector)
   axpy!(-idr.β, unsafe_view(idr.G, :, idr.latestIdx), sol.r)
-  axpy!(idr.β, unsafe_view(idr.W, :, idr.latestIdx), sol.x)
   idr.v = copy(sol.r)
 
   # Residual smoothing
@@ -182,7 +180,7 @@ function update!(sol::MRSmoothedSolution, idr::BiOSpace, proj::BiOProjector)
   ratio = vecdot(sol.s, sol.u) / vecdot(sol.u, sol.u)
 
   axpy!(-ratio, sol.u, sol.s)
-  axpy!(ratio, sol.v, sol.y)
+  axpy!(ratio, sol.v, sol.x)
 
   scale!(sol.u, 1 - ratio)
   scale!(sol.v, 1 - ratio)
