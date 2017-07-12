@@ -1,4 +1,4 @@
-type FQMRSolution
+type FQMRSolution <: Solution
   x
   ρ
   rho0
