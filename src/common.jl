@@ -21,6 +21,67 @@ end
 type SingleSkew <: SkewType
 end
 
+@inline function get(sol::Solution)
+  sol.x
+end
+
+
+type NormalSolution <: Solution
+  x
+  ρ
+  rho0
+  tol
+  r
+
+  NormalSolution(x, ρ, tol, r0) = new(x, [ρ], ρ, tol, r0)
+end
+
+abstract type SmoothedSolution <: Solution end
+
+@inline function get(sol::SmoothedSolution)
+  sol.y
+end
+
+
+# With residual smoothing
+type QMRSmoothedSolution <: SmoothedSolution
+  x
+  ρ
+  rho0
+  tol
+  r
+
+  # Residual smoothing as proposed in
+  #   Residual Smoothing Techniques for Iterative Methods
+  #   Lu Zhou and Homer F. Walker
+  # Algorithm 3.2.2
+  η
+  τ
+  y
+  s
+  u
+  v
+
+  QMRSmoothedSolution(x, ρ, tol, r0) = new(x, [ρ], ρ, tol, r0, ρ ^ 2, ρ ^ 2, copy(x), copy(r0), zeros(eltype(r0), size(r0)), zeros(eltype(r0), size(r0)))
+end
+
+type MRSmoothedSolution <: SmoothedSolution
+  x
+  ρ
+  rho0
+  tol
+  r
+
+  # Algorithm 2.2
+  y
+  s
+  u
+  v
+
+  MRSmoothedSolution(x, ρ, tol, r0) = new(x, [ρ], ρ, tol, r0, copy(x), copy(r0), zeros(eltype(r0), size(r0)), zeros(eltype(r0), size(r0)))
+end
+
+
 function nextIDRSpace!(proj::Projector, idr::IDRSpace)
   proj.j += 1
 

@@ -41,7 +41,7 @@ function IDRMethod(solution::Solution, idrSpace::IDRSpace, projector::Projector,
 
       update!(solution, idrSpace, projector)
       if isConverged(solution) || iter == maxIt
-        return solution.x, solution.ρ
+        return get(solution), solution.ρ
       end
     end
   end
