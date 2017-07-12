@@ -7,15 +7,7 @@ using Base.LinAlg
 
 abstract type Projector end
 abstract type IDRSpace end
-
-type Solution
-  x
-  ρ
-  rho0
-  tol
-
-  Solution(x, ρ, tol) = new(x, [ρ], ρ, tol)
-end
+abstract type Solution end
 
 include("harmenView.jl")
 include("common.jl")

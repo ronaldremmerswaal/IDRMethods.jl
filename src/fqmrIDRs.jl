@@ -1,3 +1,12 @@
+type FQMRSolution
+  x
+  ρ
+  rho0
+  tol
+
+  FQMRSolution(x, ρ, tol) = new(x, [ρ], ρ, tol)
+end
+
 type FQMRSpace <: IDRSpace
   A
   P
@@ -93,7 +102,7 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
   idrSpace = FQMRSpace(A, P, r0, rho0, orthT, size(b, 1), s, eltype(b))
   idrSpace.W[:, 1] = 0.0
   idrSpace.G[:, 1] = r0
-  solution = Solution(x0, rho0, tol)
+  solution = FQMRSolution(x0, rho0, tol)
   projector = FQMRProjector(size(b, 1), projDim, R0, kappa, orthSearch, skewT, eltype(b))
 
   return IDRMethod(solution, idrSpace, projector, maxIt)
@@ -225,7 +234,7 @@ end
 end
 
 
-function update!(sol::Solution, idr::FQMRSpace, proj::FQMRProjector)
+function update!(sol::FQMRSolution, idr::FQMRSpace, proj::FQMRProjector)
   axpy!(idr.ϕ, unsafe_view(idr.W, :, idr.latestIdx), sol.x)
   push!(sol.ρ, abs(idr.φ) * sqrt(proj.j + 1.))
 end
