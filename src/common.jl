@@ -90,7 +90,7 @@ end
 
 function orthogonalize!(g, G, h, orthT::ClassicalGS)
   Ac_mul_B!(h, G, g)
-  gemv!('N', -1.0, G, h, 1.0, g)
+  gemv!('N', -one(eltype(G)), G, h, one(eltype(G)), g)
 
   return vecnorm(g)
 end
@@ -99,7 +99,7 @@ end
 function orthogonalize!(g, G, h, orthT::RepeatedClassicalGS)
   Ac_mul_B!(h, G, g)
   # println(0, ", normG = ", vecnorm(g), ", normH = ", vecnorm(h))
-  gemv!('N', -1.0, G, h, 1.0, g)
+  gemv!('N', -one(eltype(G)), G, h, one(eltype(G)), g)
 
   normG = vecnorm(g)
   normH = vecnorm(h)
@@ -112,9 +112,9 @@ function orthogonalize!(g, G, h, orthT::RepeatedClassicalGS)
     updateH = Vector(h)
 
     Ac_mul_B!(updateH, G, g)
-    gemv!('N', -1.0, G, updateH, 1.0, g)
+    gemv!('N', -one(eltype(G)), G, updateH, one(eltype(G)), g)
 
-    axpy!(1.0, updateH, h)
+    axpy!(one(eltype(G)), updateH, h)
 
     normG = vecnorm(g)
     normH = vecnorm(updateH)
@@ -180,8 +180,8 @@ function skewProject!(v, G1, G2, R0, lu, α, u, uIdx1, uIdx2, m, skewT::SingleSk
   A_ldiv_B!(α, lu, m)
 
   copy!(u, α[[uIdx1; uIdx2]])
-  gemv!('N', -1.0, G1, u[1 : length(uIdx1)], 1.0, v)
-  gemv!('N', -1.0, G2, u[length(uIdx1) + 1 : end], 1.0, v)
+  gemv!('N', -one(eltype(G1)), G1, u[1 : length(uIdx1)], one(eltype(G1)), v)
+  gemv!('N', -one(eltype(G2)), G2, u[length(uIdx1) + 1 : end], one(eltype(G2)), v)
 end
 
 function skewProject!(v, G, R0, lu, α, u, uIdx, m, skewT::SingleSkew)
@@ -189,7 +189,7 @@ function skewProject!(v, G, R0, lu, α, u, uIdx, m, skewT::SingleSkew)
   A_ldiv_B!(α, lu, m)
 
   copy!(u, α[uIdx])
-  gemv!('N', -1.0, G, u, 1.0, v)
+  gemv!('N', -one(eltype(G)), G, u, one(eltype(G)), v)
 end
 
 

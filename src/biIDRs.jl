@@ -82,7 +82,7 @@ function apply!(proj::BiOProjector, idr::BiOSpace)
       end
     end
     if proj.j > 0
-      gemv!('N', -1.0, unsafe_view(idr.G, :, k : idr.s), unsafe_view(proj.α, k : idr.s), 1.0, idr.v)
+      gemv!('N', -one(eltype(idr.v)), unsafe_view(idr.G, :, k : idr.s), unsafe_view(proj.α, k : idr.s), one(eltype(idr.v)), idr.v)
     end
   end
 end
@@ -93,7 +93,7 @@ function expand!(idr::BiOSpace, proj::BiOProjector)
   evalPrecon!(idr.v, idr.P, idr.v) # TODO is this safe?
 
   if proj.j > 0 && idr.latestIdx < idr.s + 1
-    gemv!('N', 1.0, unsafe_view(idr.W, :, idr.latestIdx : idr.s), unsafe_view(proj.α, idr.latestIdx : idr.s), proj.ω, idr.v)
+    gemv!('N', one(eltype(idr.v)), unsafe_view(idr.W, :, idr.latestIdx : idr.s), unsafe_view(proj.α, idr.latestIdx : idr.s), proj.ω, idr.v)
   end
 
   idr.W[:, idr.latestIdx] = idr.v
@@ -117,7 +117,7 @@ function update!(idr::BiOSpace, proj::BiOProjector, k, iter)
     end
 
     # And update W accordingly
-    gemv!('N', -1.0, unsafe_view(idr.W, :, 1 : k - 1), α, 1.0, unsafe_view(idr.W, :, k))
+    gemv!('N', -one(eltype(idr.W)), unsafe_view(idr.W, :, 1 : k - 1), α, one(eltype(idr.W)), unsafe_view(idr.W, :, k))
 
     # NB Scale G such that diag(proj.M) = eye(s)
     # TODO check if inner product nonzero..
@@ -137,7 +137,7 @@ function update!(proj::BiOProjector, idr::BiOSpace)
   end
 
   if k > 1
-    
+
     # Update it
     Ac_mul_B!(unsafe_view(proj.M, k : idr.s, k - 1), unsafe_view(proj.R0, :, k : idr.s), unsafe_view(idr.G, :, k - 1))
     if k <= idr.s

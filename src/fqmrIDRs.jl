@@ -167,7 +167,6 @@ end
 function expand!(idr::FQMRSpace, proj::FQMRProjector)
   idr.latestIdx = idr.latestIdx > idr.s ? 1 : idr.latestIdx + 1
 
-
   evalPrecon!(idr.vhat, idr.P, idr.v)
   if proj.orthSearch && proj.j == 0
     # First s steps we project orthogonal to R0 by using a flexible preconditioner
@@ -179,7 +178,7 @@ end
 
 function update!(idr::FQMRSpace, proj::FQMRProjector, k, iter)
   updateG!(idr, k)
-  updateHes!(idr, proj, iter)
+  updateHes!(idr, proj, k, iter)
   updateW!(idr, k, iter)
 end
 
@@ -200,7 +199,7 @@ function updateG!(idr::FQMRSpace, k)
 end
 
 # Updates the QR factorization of H
-function updateHes!(idr::FQMRSpace, proj::FQMRProjector, iter)
+function updateHes!(idr::FQMRSpace, proj::FQMRProjector, k, iter)
   idr.cosine[1 : end - 1] = unsafe_view(idr.cosine, 2 : idr.s + 2)
   idr.sine[1 : end - 1] = unsafe_view(idr.sine, 2 : idr.s + 2)
 
@@ -218,13 +217,13 @@ end
 
 function updateW!(idr::FQMRSpace, k, iter)
   if iter > idr.s
-    gemv!('N', -1.0, idr.W, idr.r[[idr.s + 2 - k : idr.s + 1; 1 : idr.s + 1 - k]], 1.0, idr.vhat)
+    gemv!('N', -one(eltype(idr.W)), idr.W, idr.r[[idr.s + 2 - k : idr.s + 1; 1 : idr.s + 1 - k]], one(eltype(idr.W)), idr.vhat)
   else
-    gemv!('N', -1.0, unsafe_view(idr.W, :, 1 : k), unsafe_view(idr.r, idr.s + 2 - k : idr.s + 1), 1.0, idr.vhat)
+    gemv!('N', -one(eltype(idr.W)), unsafe_view(idr.W, :, 1 : k), unsafe_view(idr.r, idr.s + 2 - k : idr.s + 1), one(eltype(idr.W)), idr.vhat)
   end
 
   copy!(unsafe_view(idr.W, :, idr.latestIdx), idr.vhat)
-  scale!(unsafe_view(idr.W, :, idr.latestIdx), 1 / idr.r[end - 1])
+  scale!(unsafe_view(idr.W, :, idr.latestIdx), 1.0 / idr.r[end - 1])
 end
 
 @inline function mapToIDRSpace!(idr::FQMRSpace, proj::FQMRProjector)
