@@ -32,7 +32,7 @@ end
 # TODO how many n-vectors do we need? (g, v, vhat)
 FQMRSpace{T}(A, P, g::DenseVector{T}, s, rho0, orthT, hes) = FQMRSpace{T}(s, A, P, Matrix{T}(length(g), s + 1), Matrix{T}(length(g), s + 1), g, Vector{T}(length(g)), 1, orthT, zeros(T, s + 3), hes)
 
-type FQMRProjector <: Projector
+type FQMRProjector{T} <: Projector{T}
   n
   s
   j
@@ -53,8 +53,8 @@ type FQMRProjector <: Projector
 
   lu
 
-  FQMRProjector(n, s, R0, κ, orthSearch, skewT, T) = new(n, s, 0, zero(T), zero(T), [], zeros(T, s), zeros(T, s), R0, zeros(T, s), κ, orthSearch, skewT, 0, 0, [], [])
 end
+FQMRProjector(n, s, R0, κ, orthSearch, skewT, T) = FQMRProjector{T}(n, s, 0, zero(T), zero(T), [], zeros(T, s), zeros(T, s), R0, zeros(T, s), κ, orthSearch, skewT, 0, 0, [], [])
 
 # Iteratively construct the generalized Hessenberg decomposition of A:
 #   A * G * U = G * H,
@@ -111,7 +111,7 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
 end
 
 # Maps v -> v - G * (R0' * G)^-1 * R0 * v
-function apply!{T}(proj::FQMRProjector, idr::FQMRSpace{T})
+function apply!{T}(proj::FQMRProjector{T}, idr::FQMRSpace{T})
   if proj.j == 0 && idr.latestIdx <= idr.s
     return
   end
@@ -141,7 +141,7 @@ function apply!{T}(proj::FQMRProjector, idr::FQMRSpace{T})
 
 end
 
-function update!{T}(proj::FQMRProjector, idr::FQMRSpace{T})
+function update!{T}(proj::FQMRProjector{T}, idr::FQMRSpace{T})
   if proj.j == 0 && idr.latestIdx == idr.s
     initialize!(proj, idr)
   elseif proj.j > 0
@@ -149,7 +149,7 @@ function update!{T}(proj::FQMRProjector, idr::FQMRSpace{T})
   end
 end
 
-function initialize!{T}(proj::FQMRProjector, idr::FQMRSpace{T})
+function initialize!{T}(proj::FQMRProjector{T}, idr::FQMRSpace{T})
   if length(proj.R0) == 0
     proj.R0 = rand(proj.n, proj.s)
     proj.R0, = qr(proj.R0)
@@ -165,7 +165,7 @@ function initialize!{T}(proj::FQMRProjector, idr::FQMRSpace{T})
   proj.gToMIdx[idr.s - proj.s + 1 : idr.s] = 1 : proj.s
 end
 
-function expand!{T}(idr::FQMRSpace{T}, proj::FQMRProjector)
+function expand!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T})
   idr.latestIdx = idr.latestIdx > idr.s ? 1 : idr.latestIdx + 1
 
   evalPrecon!(idr.vhat, idr.P, idr.v)
@@ -177,7 +177,7 @@ function expand!{T}(idr::FQMRSpace{T}, proj::FQMRProjector)
   A_mul_B!(unsafe_view(idr.G, :, idr.latestIdx), idr.A, idr.vhat)
 end
 
-function update!{T}(idr::FQMRSpace{T}, proj::FQMRProjector, k, iter)
+function update!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T}, k, iter)
   updateG!(idr, k)
   updateHes!(idr, proj, k, iter)
   updateW!(idr, k, iter)
@@ -198,7 +198,7 @@ function updateG!{T}(idr::FQMRSpace{T}, k)
 end
 
 # Updates the QR factorization of H
-function updateHes!{T}(idr::FQMRSpace{T}, proj::FQMRProjector, k, iter)
+function updateHes!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T}, k, iter)
 
   if proj.j > 0
     # Add contribution due to projector
@@ -209,7 +209,7 @@ function updateHes!{T}(idr::FQMRSpace{T}, proj::FQMRProjector, k, iter)
   addColumn!(idr.hes, idr.r)
 end
 
-@inline function mapToIDRSpace!{T}(idr::FQMRSpace{T}, proj::FQMRProjector)
+@inline function mapToIDRSpace!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T})
   if proj.j > 0
     axpy!(-proj.μ, idr.v, unsafe_view(idr.G, :, idr.latestIdx));
   end
@@ -226,7 +226,7 @@ function updateW!{T}(idr::FQMRSpace{T}, k, iter)
   copy!(unsafe_view(idr.W, :, idr.latestIdx), idr.vhat)
 end
 
-function update!{T}(sol::FQMRSolution{T}, idr::FQMRSpace{T}, proj::FQMRProjector)
+function update!{T}(sol::FQMRSolution{T}, idr::FQMRSpace{T}, proj::FQMRProjector{T})
   axpy!(idr.hes.ϕ, unsafe_view(idr.W, :, idr.latestIdx), sol.x)
   push!(sol.ρ, abs(idr.hes.φ) * sqrt(proj.j + 1.))
   # @show idr.givensRot[end]

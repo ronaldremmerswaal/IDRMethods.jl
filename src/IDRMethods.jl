@@ -10,7 +10,7 @@ include("common.jl")
 include("fqmrIDRs.jl")
 include("biIDRs.jl")
 
-function IDRMethod(solution::Solution, idrSpace::IDRSpace, projector::Projector, maxIt)
+function IDRMethod{T}(solution::Solution{T}, idrSpace::IDRSpace{T}, projector::Projector{T}, maxIt)
 
   iter = 0
   s = idrSpace.s

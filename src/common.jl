@@ -1,7 +1,7 @@
 type Identity end
 type Preconditioner end
 
-abstract type Projector end
+abstract type Projector{T} end
 abstract type IDRSpace{T} end
 
 abstract type OrthType end
