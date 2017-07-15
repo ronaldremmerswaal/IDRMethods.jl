@@ -66,7 +66,7 @@ FQMRProjector(n, s, R0, κ, orthSearch, skewT, T) = FQMRProjector{T}(n, s, 0, ze
 #     "Flexible and multi‐shift induced dimension reduction algorithms for solving large sparse linear systems."
 #     Numerical Linear Algebra with Applications 22.1 (2015): 1-25.
 #
-function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = [], orthTol = eps(real(eltype(b))), orthSearch = false, kappa = 0.7, orth = "MGS", skewRepeat = 1, orthRepeat = 3, projDim = s)
+function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = [], orthTol = eps(real(eltype(b))), orthSearch = false, kappa = 0.7, orth = "MGS", hesOrth = "Givens", skewRepeat = 1, orthRepeat = 3, projDim = s)
 
   if length(R0) > 0 && size(R0) != (length(b), projDim)
     error("size(R0) != [", length(b), ", $s] (User provided shadow residuals are of incorrect size)")
@@ -99,7 +99,11 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
   end
   rho0 = vecnorm(r0)
   scale!(r0, 1.0 / rho0)
-  hes = HHBandedHessenberg(s + 1, rho0)
+  if hesOrth == "HH"
+    hes = HHBandedHessenberg(s + 1, rho0)
+  elseif hesOrth == "Givens"
+    hes = GivensBandedHessenberg(s + 1, rho0)
+  end
   idrSpace = FQMRSpace(A, P, r0, s, rho0, orthT, hes)
   idrSpace.W[:, 1] = 0.0
   idrSpace.G[:, 1] = r0
@@ -151,8 +155,7 @@ end
 
 function initialize!{T}(proj::FQMRProjector{T}, idr::FQMRSpace{T})
   if length(proj.R0) == 0
-    proj.R0 = rand(proj.n, proj.s)
-    proj.R0, = qr(proj.R0)
+    proj.R0, = qr(rand(proj.n, proj.s))
   end
   proj.M = Matrix{eltype(idr.v)}(proj.s, proj.s)
   Ac_mul_B!(proj.M, proj.R0, unsafe_view(idr.G, :, idr.s - proj.s + 1 : idr.s))
@@ -216,7 +219,7 @@ end
 end
 
 function updateW!{T}(idr::FQMRSpace{T}, k, iter)
-  oneOverR = one(eltype(idr.W)) / idr.r[end - 1]
+  oneOverR = one(T) / idr.r[end - 1]
   if iter > idr.s
     gemv!('N', -oneOverR, idr.W, idr.r[[idr.s + 2 - k : idr.s + 1; 1 : idr.s + 1 - k]], oneOverR, idr.vhat)
   else
@@ -229,6 +232,4 @@ end
 function update!{T}(sol::FQMRSolution{T}, idr::FQMRSpace{T}, proj::FQMRProjector{T})
   axpy!(idr.hes.ϕ, unsafe_view(idr.W, :, idr.latestIdx), sol.x)
   push!(sol.ρ, abs(idr.hes.φ) * sqrt(proj.j + 1.))
-  # @show idr.givensRot[end]
-  # @show sol.ρ[end] - vecnorm(idr.A * sol.x - ones(sol.x))
 end

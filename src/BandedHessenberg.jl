@@ -17,27 +17,28 @@ export GivensBandedHessenberg, HHBandedHessenberg, addColumn!, apply!
 # Householder
 type HHBandedHessenberg{T} <: AbstractBandedHessenberg{T}
   bandWidth::Int
-  Qt::Vector{Vector{T}}
+  q::Vector{T}
   ϕ::T
   φ::T
+  τ::Vector{T}
 
   nrCols
 
 end
-HHBandedHessenberg{T}(bandWidth, rho0::T) = HHBandedHessenberg{T}(bandWidth, Vector{Vector{T}}(bandWidth + 1), zero(T), rho0, 0)
+HHBandedHessenberg{T}(bandWidth, rho0::T) = HHBandedHessenberg{T}(bandWidth, Vector{T}(bandWidth + 1), zero(T), rho0, Vector{T}(bandWidth + 1), 0)
 
 function addColumn!{T}(H::HHBandedHessenberg{T}, r::Vector{T})
-  H.Qt[1 : end - 1] = H.Qt[2 : H.bandWidth + 1]
+  H.q[1 : end - 1] = unsafe_view(H.q, 2 : H.bandWidth + 1)
+  H.τ[1 : end - 1] = unsafe_view(H.τ, 2 : H.bandWidth + 1)
 
-  startIdx = max(1, H.bandWidth + 1 - H.nrCols)
-  for idx = startIdx : H.bandWidth
-    LinAlg.axpy!(-vecdot(H.Qt[idx], unsafe_view(r, idx : idx + 1)), H.Qt[idx], unsafe_view(r, idx : idx + 1))
-  end
+  startIdx::Int64 = max(1, H.bandWidth + 1 - H.nrCols)
+  applyProjections!(unsafe_view(r, startIdx : H.bandWidth + 1), unsafe_view(H.q, startIdx : H.bandWidth), unsafe_view(H.τ, startIdx : H.bandWidth))
 
-  H.Qt[end], r[end - 1] = computeReflection(r[end - 1 : end])
+  H.τ[end] = conj(LinAlg.reflector!(unsafe_view(r, H.bandWidth + 1 : H.bandWidth + 2)))
+  H.q[end] = r[end]
 
-  H.ϕ = (1. - abs(H.Qt[end][1]) ^ 2) * H.φ
-  H.φ = -H.Qt[end][2] * conj(H.Qt[end][1]) * H.φ
+  H.ϕ = (1. - H.τ[end]) * H.φ     # Solution update
+  H.φ = -H.τ[end] * conj(H.q[end]) * H.φ        # Residual norm update
 
   H.nrCols += 1
 end
@@ -55,6 +56,14 @@ type GivensBandedHessenberg{T} <: AbstractBandedHessenberg{T}
 end
 GivensBandedHessenberg{T}(bandWidth, rho0::T) = GivensBandedHessenberg{T}(bandWidth, Vector{LinAlg.Givens{T}}(bandWidth + 1), zero(T), rho0, 0)
 
+function applyProjections!{T}(r::StridedVector{T}, q::StridedVector{T}, τ::StridedVector{T})
+  for (l, qVal) = enumerate(q)
+    wDotR = τ[l] * (r[l] + conj(qVal) * r[l + 1])
+    r[l] -= wDotR
+    r[l + 1] -= qVal * wDotR
+  end
+end
+
 # NB modifies r as well (not clear from fcn name...)
 function addColumn!{T}(H::GivensBandedHessenberg{T}, r::Vector{T})
   H.givensRotations[1 : end - 1] = unsafe_view(H.givensRotations, 2 : H.bandWidth + 1)
@@ -70,15 +79,6 @@ function addColumn!{T}(H::GivensBandedHessenberg{T}, r::Vector{T})
   H.φ = -conj(H.givensRotations[end].s) * H.φ
 
   H.nrCols += 1
-end
-
-function computeReflection{T}(w::DenseVector{T})
-  normW = vecnorm(w)
-  α = -sign(w[1]) * normW
-  β = sqrt(normW * (normW + abs(w[1])))
-  w[1] -= α
-  w /= β
-  return w, α
 end
 
 end
