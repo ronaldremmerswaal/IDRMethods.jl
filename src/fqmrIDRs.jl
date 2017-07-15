@@ -238,6 +238,6 @@ end
 function update!(sol::FQMRSolution, idr::FQMRSpace, proj::FQMRProjector)
   axpy!(idr.ϕ, unsafe_view(idr.W, :, idr.latestIdx), sol.x)
   push!(sol.ρ, abs(idr.φ) * sqrt(proj.j + 1.))
-  @show idr.givensRot[end]
-  @show sol.ρ[end] - vecnorm(idr.A * sol.x - ones(sol.x))
+  # @show idr.givensRot[end]
+  # @show sol.ρ[end] - vecnorm(idr.A * sol.x - ones(sol.x))
 end
