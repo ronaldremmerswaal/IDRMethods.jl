@@ -74,14 +74,18 @@ function apply!{T}(proj::BiOProjector{T}, idr::BiOSpace{T})
       proj.α[k] = proj.α[k] / proj.M[k, k]
       axpy!(proj.α[k], unsafe_view(proj.M, k + 1 : proj.s, k), unsafe_view(proj.α, k + 1 : proj.s))
     else
-      for i = k : proj.s
-        for j = k : i - 1
-          proj.α[i] -= proj.M[i, j] * proj.α[j]
-        end
-      end
+      solveLowerTriangular!(proj.α, proj.M, k)
     end
     if proj.j > 0
-      gemv!('N', -one(eltype(idr.v)), unsafe_view(idr.G, :, k : idr.s), unsafe_view(proj.α, k : idr.s), one(eltype(idr.v)), idr.v)
+      gemv!('N', -one(T), unsafe_view(idr.G, :, k : idr.s), unsafe_view(proj.α, k : idr.s), one(T), idr.v)
+    end
+  end
+end
+
+function solveLowerTriangular!{T}(α::StridedVector{T}, M::StridedMatrix{T}, startIdx::Int)
+  for i = startIdx : length(α)
+    for j = startIdx : i - 1
+      α[i] -= M[i, j] * α[j]
     end
   end
 end
@@ -92,7 +96,7 @@ function expand!{T}(idr::BiOSpace{T}, proj::BiOProjector{T})
   evalPrecon!(idr.v, idr.P, idr.v) # TODO is this safe?
 
   if proj.j > 0 && idr.latestIdx < idr.s + 1
-    gemv!('N', one(eltype(idr.v)), unsafe_view(idr.W, :, idr.latestIdx : idr.s), unsafe_view(proj.α, idr.latestIdx : idr.s), proj.ω, idr.v)
+    gemv!('N', one(T), unsafe_view(idr.W, :, idr.latestIdx : idr.s), unsafe_view(proj.α, idr.latestIdx : idr.s), proj.ω, idr.v)
   end
 
   idr.W[:, idr.latestIdx] = idr.v
@@ -109,14 +113,10 @@ function update!{T}(idr::BiOSpace{T}, proj::BiOProjector{T}, k, iter)
     idr.β = proj.ω
   else
     # Biorthogonalise the pair R0, G
-    α = Vector{eltype(idr.v)}(k - 1)
-    for j = 1 : k - 1
-      α[j] = vecdot(unsafe_view(proj.R0, :, j), unsafe_view(idr.G, :, k))
-      axpy!(-α[j], unsafe_view(idr.G, :, j), unsafe_view(idr.G, :, k))
-    end
+    α = biOrthogonalize!(unsafe_view(idr.G, :, k), idr.G, proj.R0, k - 1)
 
     # And update W accordingly
-    gemv!('N', -one(eltype(idr.W)), unsafe_view(idr.W, :, 1 : k - 1), α, one(eltype(idr.W)), unsafe_view(idr.W, :, k))
+    gemv!('N', -one(T), unsafe_view(idr.W, :, 1 : k - 1), α, one(T), unsafe_view(idr.W, :, k))
 
     # NB Scale G such that diag(proj.M) = eye(s)
     # TODO check if inner product nonzero..
@@ -126,6 +126,15 @@ function update!{T}(idr::BiOSpace{T}, proj::BiOProjector{T}, k, iter)
 
     idr.β = proj.m[k]
   end
+end
+
+function biOrthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, R0::StridedMatrix{T}, endIdx::Int)
+  α = Vector{T}(endIdx)
+  for j = 1 : endIdx
+    α[j] = vecdot(unsafe_view(R0, :, j), g)
+    axpy!(-α[j], unsafe_view(G, :, j), g)
+  end
+  return α
 end
 
 function update!{T}(proj::BiOProjector{T}, idr::BiOSpace{T})

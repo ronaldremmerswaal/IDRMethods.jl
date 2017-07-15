@@ -157,7 +157,7 @@ function initialize!{T}(proj::FQMRProjector{T}, idr::FQMRSpace{T})
   if length(proj.R0) == 0
     proj.R0, = qr(rand(proj.n, proj.s))
   end
-  proj.M = Matrix{eltype(idr.v)}(proj.s, proj.s)
+  proj.M = Matrix{T}(proj.s, proj.s)
   Ac_mul_B!(proj.M, proj.R0, unsafe_view(idr.G, :, idr.s - proj.s + 1 : idr.s))
   proj.M = LUFactorized(proj.M, proj.s - 1)   # NB allow for s - 1 column updates before recomputing lu factorization
 
@@ -174,7 +174,7 @@ function expand!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T})
   evalPrecon!(idr.vhat, idr.P, idr.v)
   if proj.orthSearch && proj.j == 0
     # First s steps we project orthogonal to R0 by using a flexible preconditioner
-    α = zeros(eltype(idr.vhat), proj.s)
+    α = zeros(T, proj.s)
     orthogonalize!(idr.vhat, proj.R0, α, idr.orthT)
   end
   A_mul_B!(unsafe_view(idr.G, :, idr.latestIdx), idr.A, idr.vhat)
@@ -188,14 +188,14 @@ end
 
 function updateG!{T}(idr::FQMRSpace{T}, k)
 
-  idr.r[:] = zero(eltype(idr.v))
+  idr.r[:] = zero(T)
   if k < idr.s + 1
     idr.r[end] = orthogonalize!(unsafe_view(idr.G, :, idr.latestIdx), unsafe_view(idr.G, :, 1 : k), unsafe_view(idr.r, idr.s + 3 - k : idr.s + 2), idr.orthT)
   else
     idr.r[end] = vecnorm(unsafe_view(idr.G, :, idr.latestIdx))
   end
 
-  scale!(unsafe_view(idr.G, :, idr.latestIdx), one(eltype(idr.v)) / idr.r[end])
+  scale!(unsafe_view(idr.G, :, idr.latestIdx), one(T) / idr.r[end])
   copy!(idr.v, unsafe_view(idr.G, :, idr.latestIdx))
 
 end
