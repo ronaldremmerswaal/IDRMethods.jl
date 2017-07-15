@@ -154,8 +154,8 @@ function skewProject!(v, G1, G2, R0, lu, α, u, uIdx1, uIdx2, m, skewT::SingleSk
   A_ldiv_B!(α, lu, m)
 
   copy!(u, α[[uIdx1; uIdx2]])
-  gemv!('N', -one(eltype(G1)), G1, u[1 : length(uIdx1)], one(eltype(G1)), v)
-  gemv!('N', -one(eltype(G2)), G2, u[length(uIdx1) + 1 : end], one(eltype(G2)), v)
+  gemv!('N', -one(eltype(G1)), G1, unsafe_view(u, 1 : length(uIdx1)), one(eltype(G1)), v)
+  gemv!('N', -one(eltype(G2)), G2, unsafe_view(u, length(uIdx1) + 1 : length(u)), one(eltype(G2)), v)
 end
 
 function skewProject!(v, G, R0, lu, α, u, uIdx, m, skewT::SingleSkew)

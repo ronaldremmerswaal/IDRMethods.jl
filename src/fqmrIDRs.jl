@@ -29,7 +29,7 @@ type FQMRSpace <: IDRSpace
 
 
   # TODO how many n-vectors do we need? (g, v, vhat)
-  FQMRSpace(A, P, g, rho0, orthT, n, s, T) = new(A, P, Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), 1, orthT, zeros(T, s + 3), Vector{Tuple{LinAlg.Givens{T}, T}}(s + 2), zero(T), rho0)
+  FQMRSpace(A, P, g, rho0, orthT, n, s, T) = new(A, P, Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), 1, orthT, zeros(T, s + 3), Vector{LinAlg.Givens{T}}(s + 2), zero(T), rho0)
 end
 
 type FQMRProjector <: Projector
@@ -207,25 +207,13 @@ function updateHes!(idr::FQMRSpace, proj::FQMRProjector, k, iter)
 
   startIdx = max(1, idr.s + 3 - iter)
   for l = startIdx : idr.s + 1
-    idr.r[l : l + 1] = idr.givensRot[l][1] * unsafe_view(idr.r, l : l + 1)
+    idr.r[l : l + 1] = idr.givensRot[l] * unsafe_view(idr.r, l : l + 1)
   end
 
-  idr.givensRot[end] = givens(idr.r[end - 1], idr.r[end], 1, 2)
-  idr.r[end - 1] = idr.givensRot[end][2]
+  idr.givensRot[end], idr.r[end - 1] = givens(idr.r[end - 1], idr.r[end], 1, 2)
 
-  idr.ϕ = idr.givensRot[end][1].c * idr.φ
-  idr.φ = -conj(idr.givensRot[end][1].s) * idr.φ
-end
-
-function updateW!(idr::FQMRSpace, k, iter)
-  if iter > idr.s
-    gemv!('N', -one(eltype(idr.W)), idr.W, idr.r[[idr.s + 2 - k : idr.s + 1; 1 : idr.s + 1 - k]], one(eltype(idr.W)), idr.vhat)
-  else
-    gemv!('N', -one(eltype(idr.W)), unsafe_view(idr.W, :, 1 : k), unsafe_view(idr.r, idr.s + 2 - k : idr.s + 1), one(eltype(idr.W)), idr.vhat)
-  end
-
-  copy!(unsafe_view(idr.W, :, idr.latestIdx), idr.vhat)
-  scale!(unsafe_view(idr.W, :, idr.latestIdx), one(eltype(idr.r)) / idr.r[end - 1])
+  idr.ϕ = idr.givensRot[end].c * idr.φ
+  idr.φ = -conj(idr.givensRot[end].s) * idr.φ
 end
 
 @inline function mapToIDRSpace!(idr::FQMRSpace, proj::FQMRProjector)
@@ -234,6 +222,17 @@ end
   end
 end
 
+function updateW!(idr::FQMRSpace, k, iter)
+  oneOverR = one(eltype(idr.W)) / idr.r[end - 1]
+  if iter > idr.s
+    gemv!('N', -oneOverR, idr.W, idr.r[[idr.s + 2 - k : idr.s + 1; 1 : idr.s + 1 - k]], oneOverR, idr.vhat)
+  else
+    gemv!('N', -oneOverR, unsafe_view(idr.W, :, 1 : k), unsafe_view(idr.r, idr.s + 2 - k : idr.s + 1), oneOverR, idr.vhat)
+  end
+
+  copy!(unsafe_view(idr.W, :, idr.latestIdx), idr.vhat)
+  # @show iter, idr.r[end - 1]
+end
 
 function update!(sol::FQMRSolution, idr::FQMRSpace, proj::FQMRProjector)
   axpy!(idr.ϕ, unsafe_view(idr.W, :, idr.latestIdx), sol.x)
