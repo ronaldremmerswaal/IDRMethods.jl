@@ -1,23 +1,23 @@
 using Factorized
 using BandedHessenberg
 
-type FQMRSolution <: Solution
-  x
+type FQMRSolution{T} <: Solution{T}
+  x::DenseVector{T}
   ρ
   rho0
   tol
 
-  FQMRSolution(x, ρ, tol) = new(x, [ρ], ρ, tol)
 end
+FQMRSolution{T}(x::DenseVector{T}, ρ, tol) = FQMRSolution{T}(x, [ρ], ρ, tol)
 
-type FQMRSpace <: IDRSpace
+type FQMRSpace{T} <: IDRSpace{T}
+  s
+
   A
   P
 
   G
   W
-  n
-  s
   v           # last projected orthogonal to R0
   vhat
 
@@ -28,9 +28,9 @@ type FQMRSpace <: IDRSpace
   r
   hes
 
-  # TODO how many n-vectors do we need? (g, v, vhat)
-  FQMRSpace(A, P, g, rho0, orthT, n, s, T, hes) = new(A, P, Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), 1, orthT, zeros(T, s + 3), hes)
 end
+# TODO how many n-vectors do we need? (g, v, vhat)
+FQMRSpace{T}(A, P, g::DenseVector{T}, s, rho0, orthT, hes) = FQMRSpace{T}(s, A, P, Matrix{T}(length(g), s + 1), Matrix{T}(length(g), s + 1), g, Vector{T}(length(g)), 1, orthT, zeros(T, s + 3), hes)
 
 type FQMRProjector <: Projector
   n
@@ -100,7 +100,7 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
   rho0 = vecnorm(r0)
   scale!(r0, 1.0 / rho0)
   hes = GivensBandedHessenberg(s + 1, rho0)
-  idrSpace = FQMRSpace(A, P, r0, rho0, orthT, size(b, 1), s, eltype(b), hes)
+  idrSpace = FQMRSpace(A, P, r0, s, rho0, orthT, hes)
   idrSpace.W[:, 1] = 0.0
   idrSpace.G[:, 1] = r0
   solution = FQMRSolution(x0, rho0, tol)
@@ -111,7 +111,7 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
 end
 
 # Maps v -> v - G * (R0' * G)^-1 * R0 * v
-function apply!(proj::FQMRProjector, idr::FQMRSpace)
+function apply!{T}(proj::FQMRProjector, idr::FQMRSpace{T})
   if proj.j == 0 && idr.latestIdx <= idr.s
     return
   end
@@ -141,7 +141,7 @@ function apply!(proj::FQMRProjector, idr::FQMRSpace)
 
 end
 
-function update!(proj::FQMRProjector, idr::FQMRSpace)
+function update!{T}(proj::FQMRProjector, idr::FQMRSpace{T})
   if proj.j == 0 && idr.latestIdx == idr.s
     initialize!(proj, idr)
   elseif proj.j > 0
@@ -149,7 +149,7 @@ function update!(proj::FQMRProjector, idr::FQMRSpace)
   end
 end
 
-function initialize!(proj::FQMRProjector, idr::FQMRSpace)
+function initialize!{T}(proj::FQMRProjector, idr::FQMRSpace{T})
   if length(proj.R0) == 0
     proj.R0 = rand(proj.n, proj.s)
     proj.R0, = qr(proj.R0)
@@ -165,7 +165,7 @@ function initialize!(proj::FQMRProjector, idr::FQMRSpace)
   proj.gToMIdx[idr.s - proj.s + 1 : idr.s] = 1 : proj.s
 end
 
-function expand!(idr::FQMRSpace, proj::FQMRProjector)
+function expand!{T}(idr::FQMRSpace{T}, proj::FQMRProjector)
   idr.latestIdx = idr.latestIdx > idr.s ? 1 : idr.latestIdx + 1
 
   evalPrecon!(idr.vhat, idr.P, idr.v)
@@ -177,13 +177,13 @@ function expand!(idr::FQMRSpace, proj::FQMRProjector)
   A_mul_B!(unsafe_view(idr.G, :, idr.latestIdx), idr.A, idr.vhat)
 end
 
-function update!(idr::FQMRSpace, proj::FQMRProjector, k, iter)
+function update!{T}(idr::FQMRSpace{T}, proj::FQMRProjector, k, iter)
   updateG!(idr, k)
   updateHes!(idr, proj, k, iter)
   updateW!(idr, k, iter)
 end
 
-function updateG!(idr::FQMRSpace, k)
+function updateG!{T}(idr::FQMRSpace{T}, k)
 
   idr.r[:] = zero(eltype(idr.v))
   if k < idr.s + 1
@@ -198,7 +198,7 @@ function updateG!(idr::FQMRSpace, k)
 end
 
 # Updates the QR factorization of H
-function updateHes!(idr::FQMRSpace, proj::FQMRProjector, k, iter)
+function updateHes!{T}(idr::FQMRSpace{T}, proj::FQMRProjector, k, iter)
 
   if proj.j > 0
     # Add contribution due to projector
@@ -209,13 +209,13 @@ function updateHes!(idr::FQMRSpace, proj::FQMRProjector, k, iter)
   addColumn!(idr.hes, idr.r)
 end
 
-@inline function mapToIDRSpace!(idr::FQMRSpace, proj::FQMRProjector)
+@inline function mapToIDRSpace!{T}(idr::FQMRSpace{T}, proj::FQMRProjector)
   if proj.j > 0
     axpy!(-proj.μ, idr.v, unsafe_view(idr.G, :, idr.latestIdx));
   end
 end
 
-function updateW!(idr::FQMRSpace, k, iter)
+function updateW!{T}(idr::FQMRSpace{T}, k, iter)
   oneOverR = one(eltype(idr.W)) / idr.r[end - 1]
   if iter > idr.s
     gemv!('N', -oneOverR, idr.W, idr.r[[idr.s + 2 - k : idr.s + 1; 1 : idr.s + 1 - k]], oneOverR, idr.vhat)
@@ -226,7 +226,7 @@ function updateW!(idr::FQMRSpace, k, iter)
   copy!(unsafe_view(idr.W, :, idr.latestIdx), idr.vhat)
 end
 
-function update!(sol::FQMRSolution, idr::FQMRSpace, proj::FQMRProjector)
+function update!{T}(sol::FQMRSolution{T}, idr::FQMRSpace{T}, proj::FQMRProjector)
   axpy!(idr.hes.ϕ, unsafe_view(idr.W, :, idr.latestIdx), sol.x)
   push!(sol.ρ, abs(idr.hes.φ) * sqrt(proj.j + 1.))
   # @show idr.givensRot[end]

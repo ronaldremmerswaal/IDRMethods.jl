@@ -1,6 +1,9 @@
 type Identity end
 type Preconditioner end
 
+abstract type Projector end
+abstract type IDRSpace{T} end
+
 abstract type OrthType end
 type ClassicalGS <: OrthType
 end
@@ -21,21 +24,22 @@ end
 type SingleSkew <: SkewType
 end
 
-type NormalSolution <: Solution
+abstract type Solution{T} end
+type NormalSolution{T} <: Solution{T}
   x
   ρ
   rho0
   tol
   r
 
-  NormalSolution(x, ρ, tol, r0) = new(x, [ρ], ρ, tol, r0)
 end
+NormalSolution{T}(x::DenseVector{T}, ρ, tol, r0) = NormalSolution{T}(x, [ρ], ρ, tol, r0)
 
-abstract type SmoothedSolution <: Solution end
+abstract type SmoothedSolution{T} <: Solution{T} end
 
 
 # With residual smoothing
-type QMRSmoothedSolution <: SmoothedSolution
+type QMRSmoothedSolution{T} <: SmoothedSolution{T}
   ρ
   rho0
   tol
@@ -52,10 +56,10 @@ type QMRSmoothedSolution <: SmoothedSolution
   u
   v
 
-  QMRSmoothedSolution(x, ρ, tol, r0) = new([ρ], ρ, tol, r0, ρ ^ 2, ρ ^ 2, x, copy(r0), zeros(eltype(r0), size(r0)), zeros(eltype(r0), size(r0)))
 end
+QMRSmoothedSolution{T}(x::DenseVector{T}, ρ, tol, r0) = QMRSmoothedSolution{T}([ρ], ρ, tol, r0, ρ ^ 2, ρ ^ 2, x, copy(r0), zeros(eltype(r0), size(r0)), zeros(eltype(r0), size(r0)))
 
-type MRSmoothedSolution <: SmoothedSolution
+type MRSmoothedSolution{T} <: SmoothedSolution{T}
   ρ
   rho0
   tol
@@ -67,11 +71,11 @@ type MRSmoothedSolution <: SmoothedSolution
   u
   v
 
-  MRSmoothedSolution(x, ρ, tol, r0) = new([ρ], ρ, tol, r0, x, copy(r0), zeros(eltype(r0), size(r0)), zeros(eltype(r0), size(r0)))
 end
+MRSmoothedSolution{T}(x::DenseVector{T}, ρ, tol, r0) = MRSmoothedSolution{T}([ρ], ρ, tol, r0, x, copy(r0), zeros(eltype(r0), size(r0)), zeros(eltype(r0), size(r0)))
 
 
-function nextIDRSpace!(proj::Projector, idr::IDRSpace)
+function nextIDRSpace!{T}(proj::Projector, idr::IDRSpace{T})
   proj.j += 1
 
   # Compute residual minimizing μ
@@ -88,7 +92,7 @@ function nextIDRSpace!(proj::Projector, idr::IDRSpace)
 
 end
 
-function orthogonalize!(g, G, h, orthT::ClassicalGS)
+function orthogonalize!{T}(g::DenseVector{T}, G::DenseMatrix{T}, h::DenseVector{T}, orthT::ClassicalGS)
   Ac_mul_B!(h, G, g)
   gemv!('N', -one(eltype(G)), G, h, one(eltype(G)), g)
 
@@ -96,7 +100,7 @@ function orthogonalize!(g, G, h, orthT::ClassicalGS)
 end
 
 # Orthogonalize g w.r.t. G, and store coeffs in h (NB g is not normalized)
-function orthogonalize!(g, G, h, orthT::RepeatedClassicalGS)
+function orthogonalize!{T}(g::DenseVector{T}, G::DenseMatrix{T}, h::DenseVector{T}, orthT::RepeatedClassicalGS)
   Ac_mul_B!(h, G, g)
   # println(0, ", normG = ", vecnorm(g), ", normH = ", vecnorm(h))
   gemv!('N', -one(eltype(G)), G, h, one(eltype(G)), g)
@@ -126,7 +130,7 @@ function orthogonalize!(g, G, h, orthT::RepeatedClassicalGS)
   return normG
 end
 
-function orthogonalize!(g, G, h, orthT::ModifiedGS)
+function orthogonalize!{T}(g::DenseVector{T}, G::DenseMatrix{T}, h::DenseVector{T}, orthT::ModifiedGS)
   for l in 1 : length(h)
     h[l] = vecdot(unsafe_view(G, :, l), g)
     axpy!(-h[l], unsafe_view(G, :, l), g)
@@ -134,7 +138,7 @@ function orthogonalize!(g, G, h, orthT::ModifiedGS)
   return vecnorm(g)
 end
 
-@inline function isConverged(sol::Solution)
+@inline function isConverged{T}(sol::Solution{T})
   return sol.ρ[end] < sol.tol * sol.rho0
 end
 

@@ -1,22 +1,21 @@
-type BiOSpace <: IDRSpace
-  n
+type BiOSpace{T} <: IDRSpace{T}
   s
 
   A
   P
 
-  G
-  W
+  G::DenseMatrix{T}
+  W::DenseMatrix{T}
 
-  v
+  v::DenseVector{T}
 
   β
 
   latestIdx
 
-  # TODO how many n-vectors do we need? (g, v, vhat)
-  BiOSpace(n, s, A, P, r0, T) = new(n, s, A, P, Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), copy(r0), zero(T), 0)
 end
+# TODO how many n-vectors do we need? (g, v, vhat)
+BiOSpace{T}(A, P, g::DenseVector{T}, s) = BiOSpace{T}(s, A, P, Matrix{T}(length(g), s + 1), Matrix{T}(length(g), s + 1), copy(g), zero(T), 0)
 
 type BiOProjector <: Projector
   n
@@ -59,14 +58,14 @@ function biIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1
     solution = QMRSmoothedSolution(x0, rho0, tol, r0)
   end
 
-  idrSpace = BiOSpace(size(b, 1), s, A, P, r0, eltype(b))
+  idrSpace = BiOSpace(A, P, r0, s)
   projector = BiOProjector(size(b, 1), s, R0, kappa, eltype(b))
 
   return IDRMethod(solution, idrSpace, projector, maxIt)
 end
 
 # Maps v -> v - G * (R0' * G)^-1 * R0 * v
-function apply!(proj::BiOProjector, idr::BiOSpace)
+function apply!{T}(proj::BiOProjector, idr::BiOSpace{T})
   k = idr.latestIdx == idr.s + 1 ? 1 : idr.latestIdx + 1
 
   if k <= idr.s
@@ -87,7 +86,7 @@ function apply!(proj::BiOProjector, idr::BiOSpace)
   end
 end
 
-function expand!(idr::BiOSpace, proj::BiOProjector)
+function expand!{T}(idr::BiOSpace{T}, proj::BiOProjector)
   idr.latestIdx = idr.latestIdx > idr.s ? 1 : idr.latestIdx + 1
 
   evalPrecon!(idr.v, idr.P, idr.v) # TODO is this safe?
@@ -101,11 +100,11 @@ function expand!(idr::BiOSpace, proj::BiOProjector)
 
 end
 
-@inline function mapToIDRSpace!(idr::BiOSpace, proj::BiOProjector)
+@inline function mapToIDRSpace!{T}(idr::BiOSpace{T}, proj::BiOProjector)
   # Do nothing, this is done inside expand!
 end
 
-function update!(idr::BiOSpace, proj::BiOProjector, k, iter)
+function update!{T}(idr::BiOSpace{T}, proj::BiOProjector, k, iter)
   if k == idr.s + 1
     idr.β = proj.ω
   else
@@ -129,7 +128,7 @@ function update!(idr::BiOSpace, proj::BiOProjector, k, iter)
   end
 end
 
-function update!(proj::BiOProjector, idr::BiOSpace)
+function update!{T}(proj::BiOProjector, idr::BiOSpace{T})
   k = idr.latestIdx == idr.s + 1 ? 1 : idr.latestIdx + 1
 
   if k == 1
@@ -147,14 +146,14 @@ function update!(proj::BiOProjector, idr::BiOSpace)
 
 end
 
-function update!(sol::NormalSolution, idr::BiOSpace, proj::BiOProjector)
+function update!{T}(sol::NormalSolution{T}, idr::BiOSpace{T}, proj::BiOProjector)
   axpy!(-idr.β, unsafe_view(idr.G, :, idr.latestIdx), sol.r)
   axpy!(idr.β, unsafe_view(idr.W, :, idr.latestIdx), sol.x)
   push!(sol.ρ, vecnorm(sol.r))
   copy!(idr.v, sol.r)
 end
 
-function update!(sol::QMRSmoothedSolution, idr::BiOSpace, proj::BiOProjector)
+function update!{T}(sol::QMRSmoothedSolution{T}, idr::BiOSpace{T}, proj::BiOProjector)
   axpy!(-idr.β, unsafe_view(idr.G, :, idr.latestIdx), sol.r)
   copy!(idr.v, sol.r)
 
@@ -176,7 +175,7 @@ function update!(sol::QMRSmoothedSolution, idr::BiOSpace, proj::BiOProjector)
   push!(sol.ρ, vecnorm(sol.s))
 end
 
-function update!(sol::MRSmoothedSolution, idr::BiOSpace, proj::BiOProjector)
+function update!{T}(sol::MRSmoothedSolution{T}, idr::BiOSpace{T}, proj::BiOProjector)
   axpy!(-idr.β, unsafe_view(idr.G, :, idr.latestIdx), sol.r)
   copy!(idr.v, sol.r)
 

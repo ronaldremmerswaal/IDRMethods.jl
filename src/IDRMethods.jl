@@ -5,10 +5,6 @@ export fqmrIDRs, biIDRs
 using Base.BLAS
 using Base.LinAlg
 
-abstract type Projector end
-abstract type IDRSpace end
-abstract type Solution end
-
 include("harmenView.jl")
 include("common.jl")
 include("fqmrIDRs.jl")
