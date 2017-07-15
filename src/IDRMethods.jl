@@ -11,7 +11,6 @@ abstract type Solution end
 
 include("harmenView.jl")
 include("common.jl")
-include("factorized.jl")
 include("fqmrIDRs.jl")
 include("biIDRs.jl")
 
