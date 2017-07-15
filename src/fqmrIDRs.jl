@@ -23,13 +23,14 @@ type FQMRSpace <: IDRSpace
   orthT
 
   r
+  normG
   givensRot
   ϕ
   φ
 
 
   # TODO how many n-vectors do we need? (g, v, vhat)
-  FQMRSpace(A, P, g, rho0, orthT, n, s, T) = new(A, P, Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), 1, orthT, zeros(T, s + 3), Vector{LinAlg.Givens{T}}(s + 2), zero(T), rho0)
+  FQMRSpace(A, P, g, rho0, orthT, n, s, T) = new(A, P, Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), 1, orthT, zeros(T, s + 2), zero(T), Vector{LinAlg.Givens{T}}(s + 2), zero(T), rho0)
 end
 
 type FQMRProjector <: Projector
@@ -184,16 +185,15 @@ end
 
 function updateG!(idr::FQMRSpace, k)
 
-  idr.r[:] = 0.
+  idr.r[:] = zero(eltype(idr.v))
   aIdx = idr.latestIdx
-
   if k < idr.s + 1
-    idr.r[end] = orthogonalize!(unsafe_view(idr.G, :, aIdx), unsafe_view(idr.G, :, 1 : k), unsafe_view(idr.r, idr.s + 3 - k : idr.s + 2), idr.orthT)
+    idr.normG = orthogonalize!(unsafe_view(idr.G, :, aIdx), unsafe_view(idr.G, :, 1 : k), unsafe_view(idr.r, idr.s + 3 - k : idr.s + 2), idr.orthT)
   else
-    idr.r[end] = vecnorm(unsafe_view(idr.G, :, aIdx))
+    idr.normG = vecnorm(unsafe_view(idr.G, :, aIdx))
   end
 
-  scale!(unsafe_view(idr.G, :, aIdx), one(eltype(idr.v)) / idr.r[end])
+  scale!(unsafe_view(idr.G, :, aIdx), one(eltype(idr.v)) / idr.normG)
   copy!(idr.v, unsafe_view(idr.G, :, aIdx))
 
 end
@@ -202,15 +202,17 @@ end
 function updateHes!(idr::FQMRSpace, proj::FQMRProjector, k, iter)
   idr.givensRot[1 : end - 1] = unsafe_view(idr.givensRot, 2 : idr.s + 2)
 
-  axpy!(-proj.μ, proj.u, unsafe_view(idr.r, 2 + idr.s - proj.s : idr.s + 1))
-  idr.r[end - 1] += proj.μ
+  if proj.j > 0
+    axpy!(-proj.μ, proj.u, unsafe_view(idr.r, 2 + idr.s - proj.s : idr.s + 1))
+    idr.r[end] += proj.μ
+  end
 
   startIdx = max(1, idr.s + 3 - iter)
   for l = startIdx : idr.s + 1
     idr.r[l : l + 1] = idr.givensRot[l] * unsafe_view(idr.r, l : l + 1)
   end
 
-  idr.givensRot[end], idr.r[end - 1] = givens(idr.r[end - 1], idr.r[end], 1, 2)
+  idr.givensRot[end], idr.r[end] = givens(idr.r[end], idr.normG, 1, 2)
 
   idr.ϕ = idr.givensRot[end].c * idr.φ
   idr.φ = -conj(idr.givensRot[end].s) * idr.φ
@@ -223,7 +225,7 @@ end
 end
 
 function updateW!(idr::FQMRSpace, k, iter)
-  oneOverR = one(eltype(idr.W)) / idr.r[end - 1]
+  oneOverR = one(eltype(idr.W)) / idr.r[end]
   if iter > idr.s
     gemv!('N', -oneOverR, idr.W, idr.r[[idr.s + 2 - k : idr.s + 1; 1 : idr.s + 1 - k]], oneOverR, idr.vhat)
   else
@@ -231,10 +233,11 @@ function updateW!(idr::FQMRSpace, k, iter)
   end
 
   copy!(unsafe_view(idr.W, :, idr.latestIdx), idr.vhat)
-  # @show iter, idr.r[end - 1]
 end
 
 function update!(sol::FQMRSolution, idr::FQMRSpace, proj::FQMRProjector)
   axpy!(idr.ϕ, unsafe_view(idr.W, :, idr.latestIdx), sol.x)
   push!(sol.ρ, abs(idr.φ) * sqrt(proj.j + 1.))
+  @show idr.givensRot[end]
+  @show sol.ρ[end] - vecnorm(idr.A * sol.x - ones(sol.x))
 end

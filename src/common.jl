@@ -146,8 +146,6 @@ end
   P(vhat, v)
 end
 
-
-
 # To ensure contiguous memory, we often have to split the projections in 2 blocks
 function skewProject!(v, G1, G2, R0, lu, α, u, uIdx1, uIdx2, m, skewT::SingleSkew)
   Ac_mul_B!(m, R0, v)
