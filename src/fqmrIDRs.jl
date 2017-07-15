@@ -23,13 +23,13 @@ type FQMRSpace <: IDRSpace
   orthT
 
   r
-  cosine
-  sine
+  givensRot
   ϕ
   φ
 
+
   # TODO how many n-vectors do we need? (g, v, vhat)
-  FQMRSpace(A, P, g, rho0, orthT, n, s, T) = new(A, P, Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), 1, orthT, zeros(T, s + 3), zeros(T, s + 2), zeros(T, s + 2), zero(T), rho0)
+  FQMRSpace(A, P, g, rho0, orthT, n, s, T) = new(A, P, Matrix{T}(n, s + 1), Matrix{T}(n, s + 1), n, s, g, Vector{T}(n), 1, orthT, zeros(T, s + 3), Vector{Tuple{LinAlg.Givens{T}, T}}(s + 2), zero(T), rho0)
 end
 
 type FQMRProjector <: Projector
@@ -193,26 +193,28 @@ function updateG!(idr::FQMRSpace, k)
     idr.r[end] = vecnorm(unsafe_view(idr.G, :, aIdx))
   end
 
-  scale!(unsafe_view(idr.G, :, aIdx), 1 / idr.r[end])
+  scale!(unsafe_view(idr.G, :, aIdx), one(eltype(idr.v)) / idr.r[end])
   copy!(idr.v, unsafe_view(idr.G, :, aIdx))
 
 end
 
 # Updates the QR factorization of H
 function updateHes!(idr::FQMRSpace, proj::FQMRProjector, k, iter)
-  idr.cosine[1 : end - 1] = unsafe_view(idr.cosine, 2 : idr.s + 2)
-  idr.sine[1 : end - 1] = unsafe_view(idr.sine, 2 : idr.s + 2)
+  idr.givensRot[1 : end - 1] = unsafe_view(idr.givensRot, 2 : idr.s + 2)
 
   axpy!(-proj.μ, proj.u, unsafe_view(idr.r, 2 + idr.s - proj.s : idr.s + 1))
   idr.r[end - 1] += proj.μ
 
   startIdx = max(1, idr.s + 3 - iter)
+  for l = startIdx : idr.s + 1
+    idr.r[l : l + 1] = idr.givensRot[l][1] * unsafe_view(idr.r, l : l + 1)
+  end
 
-  applyGivens!(unsafe_view(idr.r, startIdx : idr.s + 2), unsafe_view(idr.sine, startIdx : idr.s + 1), unsafe_view(idr.cosine, startIdx : idr.s + 1))
-  updateGivens!(idr.r, idr.sine, idr.cosine)
+  idr.givensRot[end] = givens(idr.r[end - 1], idr.r[end], 1, 2)
+  idr.r[end - 1] = idr.givensRot[end][2]
 
-  idr.ϕ = idr.cosine[end] * idr.φ
-  idr.φ = -conj(idr.sine[end]) * idr.φ
+  idr.ϕ = idr.givensRot[end][1].c * idr.φ
+  idr.φ = -conj(idr.givensRot[end][1].s) * idr.φ
 end
 
 function updateW!(idr::FQMRSpace, k, iter)
@@ -223,7 +225,7 @@ function updateW!(idr::FQMRSpace, k, iter)
   end
 
   copy!(unsafe_view(idr.W, :, idr.latestIdx), idr.vhat)
-  scale!(unsafe_view(idr.W, :, idr.latestIdx), 1.0 / idr.r[end - 1])
+  scale!(unsafe_view(idr.W, :, idr.latestIdx), one(eltype(idr.r)) / idr.r[end - 1])
 end
 
 @inline function mapToIDRSpace!(idr::FQMRSpace, proj::FQMRProjector)

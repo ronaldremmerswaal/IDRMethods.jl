@@ -170,8 +170,8 @@ function update!(sol::QMRSmoothedSolution, idr::BiOSpace, proj::BiOProjector)
   axpy!(-ratio, sol.u, sol.s)
   axpy!(ratio, sol.v, sol.x)
 
-  scale!(sol.u, 1 - ratio)
-  scale!(sol.v, 1 - ratio)
+  scale!(sol.u, 1. - ratio)
+  scale!(sol.v, 1. - ratio)
 
   push!(sol.ρ, vecnorm(sol.s))
 end
@@ -189,8 +189,8 @@ function update!(sol::MRSmoothedSolution, idr::BiOSpace, proj::BiOProjector)
   axpy!(-ratio, sol.u, sol.s)
   axpy!(ratio, sol.v, sol.x)
 
-  scale!(sol.u, 1 - ratio)
-  scale!(sol.v, 1 - ratio)
+  scale!(sol.u, 1. - ratio)
+  scale!(sol.v, 1. - ratio)
 
   push!(sol.ρ, vecnorm(sol.s))
 end

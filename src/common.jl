@@ -84,7 +84,7 @@ function nextIDRSpace!(proj::Projector, idr::IDRSpace)
     proj.ω *= proj.κ / abs(η)
   end
   # TODO condest(A)? instead of 1.
-  proj.μ = abs(proj.ω) > eps(real(eltype(idr.v))) ? 1. / proj.ω : 1.
+  proj.μ = abs(proj.ω) > eps(real(eltype(idr.v))) ? one(eltype(idr.v)) / proj.ω : one(eltype(idr.v))
 
 end
 
@@ -136,32 +136,6 @@ end
 
 @inline function isConverged(sol::Solution)
   return sol.ρ[end] < sol.tol * sol.rho0
-end
-
-function applyGivens!(r, sine, cosine)
-  for l = 1 : length(r) - 1
-    oldRl = r[l]
-    r[l] = cosine[l] * oldRl + sine[l] * r[l + 1]
-    r[l + 1] = -conj(sine[l]) * oldRl + cosine[l] * r[l + 1]
-  end
-end
-
-function updateGivens!(r, sine, cosine)
-  α = r[end - 1]
-  β = r[end]
-  if abs(α) < eps()
-    sine[end] = 1.
-    cosine[end] = 0.
-    r[end - 1] = β
-  else
-    t = abs(α) + abs(β)
-    ρ = t * sqrt(abs(α / t) ^ 2 + abs(β / t) ^ 2)
-    Θ = α / abs(α)
-    sine[end] = Θ * conj(β) / ρ
-
-    cosine[end] = abs(α) / ρ
-    r[end - 1] = Θ * ρ
-  end
 end
 
 @inline evalPrecon!(vhat, P::Identity, v) = copy!(vhat, v)
