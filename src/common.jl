@@ -57,7 +57,7 @@ type QMRSmoothedSolution{T} <: SmoothedSolution{T}
   v
 
 end
-QMRSmoothedSolution{T}(x::DenseVector{T}, ρ, tol, r0) = QMRSmoothedSolution{T}([ρ], ρ, tol, r0, ρ ^ 2, ρ ^ 2, x, copy(r0), zeros(eltype(r0), size(r0)), zeros(eltype(r0), size(r0)))
+QMRSmoothedSolution{T}(x::DenseVector{T}, ρ, tol, r0) = QMRSmoothedSolution{T}([ρ], ρ, tol, r0, ρ ^ 2, ρ ^ 2, x, copy(r0), zeros(T, size(r0)), zeros(T, size(r0)))
 
 type MRSmoothedSolution{T} <: SmoothedSolution{T}
   ρ
@@ -72,7 +72,7 @@ type MRSmoothedSolution{T} <: SmoothedSolution{T}
   v
 
 end
-MRSmoothedSolution{T}(x::DenseVector{T}, ρ, tol, r0) = MRSmoothedSolution{T}([ρ], ρ, tol, r0, x, copy(r0), zeros(eltype(r0), size(r0)), zeros(eltype(r0), size(r0)))
+MRSmoothedSolution{T}(x::DenseVector{T}, ρ, tol, r0) = MRSmoothedSolution{T}([ρ], ρ, tol, r0, x, copy(r0), zeros(T, size(r0)), zeros(T, size(r0)))
 
 
 function nextIDRSpace!{T}(proj::Projector, idr::IDRSpace{T})
@@ -88,13 +88,13 @@ function nextIDRSpace!{T}(proj::Projector, idr::IDRSpace{T})
     proj.ω *= proj.κ / abs(η)
   end
   # TODO condest(A)? instead of 1.
-  proj.μ = abs(proj.ω) > eps(real(eltype(idr.v))) ? one(eltype(idr.v)) / proj.ω : one(eltype(idr.v))
+  proj.μ = abs(proj.ω) > eps(real(T)) ? one(T) / proj.ω : one(T)
 
 end
 
 function orthogonalize!{T}(g::DenseVector{T}, G::DenseMatrix{T}, h::DenseVector{T}, orthT::ClassicalGS)
   Ac_mul_B!(h, G, g)
-  gemv!('N', -one(eltype(G)), G, h, one(eltype(G)), g)
+  gemv!('N', -one(T), G, h, one(T), g)
 
   return vecnorm(g)
 end
@@ -103,7 +103,7 @@ end
 function orthogonalize!{T}(g::DenseVector{T}, G::DenseMatrix{T}, h::DenseVector{T}, orthT::RepeatedClassicalGS)
   Ac_mul_B!(h, G, g)
   # println(0, ", normG = ", vecnorm(g), ", normH = ", vecnorm(h))
-  gemv!('N', -one(eltype(G)), G, h, one(eltype(G)), g)
+  gemv!('N', -one(T), G, h, one(T), g)
 
   normG = vecnorm(g)
   normH = vecnorm(h)
@@ -116,9 +116,9 @@ function orthogonalize!{T}(g::DenseVector{T}, G::DenseMatrix{T}, h::DenseVector{
     updateH = Vector(h)
 
     Ac_mul_B!(updateH, G, g)
-    gemv!('N', -one(eltype(G)), G, updateH, one(eltype(G)), g)
+    gemv!('N', -one(T), G, updateH, one(T), g)
 
-    axpy!(one(eltype(G)), updateH, h)
+    axpy!(one(T), updateH, h)
 
     normG = vecnorm(g)
     normH = vecnorm(updateH)
@@ -151,21 +151,21 @@ end
 end
 
 # To ensure contiguous memory, we often have to split the projections in 2 blocks
-function skewProject!(v, G1, G2, R0, lu, α, u, uIdx1, uIdx2, m, skewT::SingleSkew)
+function skewProject!{T}(v::DenseVector{T}, G1::DenseMatrix{T}, G2::DenseMatrix{T}, R0::DenseMatrix{T}, lu, α, u, uIdx1, uIdx2, m, skewT::SingleSkew)
   Ac_mul_B!(m, R0, v)
   A_ldiv_B!(α, lu, m)
 
   copy!(u, α[[uIdx1; uIdx2]])
-  gemv!('N', -one(eltype(G1)), G1, unsafe_view(u, 1 : length(uIdx1)), one(eltype(G1)), v)
-  gemv!('N', -one(eltype(G2)), G2, unsafe_view(u, length(uIdx1) + 1 : length(u)), one(eltype(G2)), v)
+  gemv!('N', -one(T), G1, unsafe_view(u, 1 : length(uIdx1)), one(T), v)
+  gemv!('N', -one(T), G2, unsafe_view(u, length(uIdx1) + 1 : length(u)), one(T), v)
 end
 
-function skewProject!(v, G, R0, lu, α, u, uIdx, m, skewT::SingleSkew)
+function skewProject!{T}(v::DenseVector{T}, G::DenseMatrix{T}, R0::DenseMatrix{T}, lu, α, u, uIdx, m, skewT::SingleSkew)
   Ac_mul_B!(m, R0, v)
   A_ldiv_B!(α, lu, m)
 
   copy!(u, α[uIdx])
-  gemv!('N', -one(eltype(G)), G, u, one(eltype(G)), v)
+  gemv!('N', -one(T), G, u, one(T), v)
 end
 
 

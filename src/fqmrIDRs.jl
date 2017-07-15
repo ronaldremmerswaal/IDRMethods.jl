@@ -66,7 +66,7 @@ FQMRProjector(n, s, R0, κ, orthSearch, skewT, T) = FQMRProjector{T}(n, s, 0, ze
 #     "Flexible and multi‐shift induced dimension reduction algorithms for solving large sparse linear systems."
 #     Numerical Linear Algebra with Applications 22.1 (2015): 1-25.
 #
-function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = [], orthTol = eps(real(eltype(b))), orthSearch = false, kappa = 0.7, orth = "MGS", hesOrth = "Givens", skewRepeat = 1, orthRepeat = 3, projDim = s)
+function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = [], orthTol = eps(real(eltype(b))), orthSearch = false, kappa = 0.7, orth = "MGS", hesOrth = "HH", skewRepeat = 1, orthRepeat = 3, projDim = s)
 
   if length(R0) > 0 && size(R0) != (length(b), projDim)
     error("size(R0) != [", length(b), ", $s] (User provided shadow residuals are of incorrect size)")

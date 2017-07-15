@@ -82,6 +82,7 @@ function apply!{T}(proj::BiOProjector{T}, idr::BiOSpace{T})
   end
 end
 
+# NB assuming unit diagonal
 function solveLowerTriangular!{T}(α::StridedVector{T}, M::StridedMatrix{T}, startIdx::Int)
   for i = startIdx : length(α)
     for j = startIdx : i - 1
