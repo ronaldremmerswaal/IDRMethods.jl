@@ -99,7 +99,7 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
   end
   rho0 = vecnorm(r0)
   scale!(r0, 1.0 / rho0)
-  hes = GivensBandedHessenberg(s + 1, rho0)
+  hes = HHBandedHessenberg(s + 1, rho0)
   idrSpace = FQMRSpace(A, P, r0, s, rho0, orthT, hes)
   idrSpace.W[:, 1] = 0.0
   idrSpace.G[:, 1] = r0
