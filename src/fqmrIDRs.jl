@@ -2,13 +2,13 @@ using Factorized
 using BandedHessenberg
 
 type FQMRSolution{T} <: Solution{T}
-  x::DenseVector{T}
+  x::StridedVector{T}
   ρ
   rho0
   tol
 
 end
-FQMRSolution{T}(x::DenseVector{T}, ρ, tol) = FQMRSolution{T}(x, [ρ], ρ, tol)
+FQMRSolution{T}(x::StridedVector{T}, ρ, tol) = FQMRSolution{T}(x, [ρ], ρ, tol)
 
 type FQMRSpace{T} <: IDRSpace{T}
   s
@@ -16,21 +16,21 @@ type FQMRSpace{T} <: IDRSpace{T}
   A
   P
 
-  G
-  W
-  v           # last projected orthogonal to R0
-  vhat
+  G::StridedMatrix{T}
+  W::StridedMatrix{T}
+  v::StridedVector{T}           # last projected orthogonal to R0
+  vhat::StridedVector{T}
 
   latestIdx   # Index in G corresponding to latest g
 
   orthT
 
-  r
+  r::StridedVector{T}
   hes
 
 end
 # TODO how many n-vectors do we need? (g, v, vhat)
-FQMRSpace{T}(A, P, g::DenseVector{T}, s, rho0, orthT, hes) = FQMRSpace{T}(s, A, P, Matrix{T}(length(g), s + 1), Matrix{T}(length(g), s + 1), g, Vector{T}(length(g)), 1, orthT, zeros(T, s + 3), hes)
+FQMRSpace{T}(A, P, g::StridedVector{T}, s, rho0, orthT, hes) = FQMRSpace{T}(s, A, P, Matrix{T}(length(g), s + 1), Matrix{T}(length(g), s + 1), g, Vector{T}(length(g)), 1, orthT, zeros(T, s + 3), hes)
 
 type FQMRProjector{T} <: Projector{T}
   n
@@ -39,10 +39,10 @@ type FQMRProjector{T} <: Projector{T}
   μ
   ω
   M
-  m
+  m::StridedVector{T}
   α
-  R0
-  u
+  R0::StridedMatrix{T}
+  u::StridedVector{T}
   κ
   orthSearch
   skewT
@@ -66,7 +66,7 @@ FQMRProjector(n, s, R0, κ, orthSearch, skewT, T) = FQMRProjector{T}(n, s, 0, ze
 #     "Flexible and multi‐shift induced dimension reduction algorithms for solving large sparse linear systems."
 #     Numerical Linear Algebra with Applications 22.1 (2015): 1-25.
 #
-function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = [], orthTol = eps(real(eltype(b))), orthSearch = false, kappa = 0.7, orth = "MGS", hesOrth = "HH", skewRepeat = 1, orthRepeat = 3, projDim = s)
+function fqmrIDRs{T}(A, b::StridedVector{T}; s = 8, tol = sqrt(eps(real(T))), maxIt = size(b, 1), x0 = Vector{T}(), P = Identity(), R0 = Matrix{T}(0, 0), orthTol = eps(real(T)), orthSearch = false, kappa = 0.7, orth = "MGS", hesOrth = "HH", skewRepeat = 1, orthRepeat = 3, projDim = s)
 
   if length(R0) > 0 && size(R0) != (length(b), projDim)
     error("size(R0) != [", length(b), ", $s] (User provided shadow residuals are of incorrect size)")
@@ -82,7 +82,7 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
     r0 = b - A * x0
   end
 
-  orthOne = one(real(eltype(b))) / √2
+  orthOne = one(real(T)) / √2
 
   if orth == "RCGS"
     orthT = RepeatedClassicalGS(orthOne, orthTol, orthRepeat)
@@ -108,7 +108,7 @@ function fqmrIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b,
   idrSpace.W[:, 1] = 0.0
   idrSpace.G[:, 1] = r0
   solution = FQMRSolution(x0, rho0, tol)
-  projector = FQMRProjector(size(b, 1), projDim, R0, kappa, orthSearch, skewT, eltype(b))
+  projector = FQMRProjector(size(b, 1), projDim, R0, kappa, orthSearch, skewT, T)
 
   return IDRMethod(solution, idrSpace, projector, maxIt)
 
@@ -157,9 +157,9 @@ function initialize!{T}(proj::FQMRProjector{T}, idr::FQMRSpace{T})
   if length(proj.R0) == 0
     proj.R0, = qr(rand(proj.n, proj.s))
   end
-  proj.M = Matrix{T}(proj.s, proj.s)
-  Ac_mul_B!(proj.M, proj.R0, unsafe_view(idr.G, :, idr.s - proj.s + 1 : idr.s))
-  proj.M = LUFactorized(proj.M, proj.s - 1)   # NB allow for s - 1 column updates before recomputing lu factorization
+  M = Matrix{T}(proj.s, proj.s)
+  Ac_mul_B!(M, proj.R0, unsafe_view(idr.G, :, idr.s - proj.s + 1 : idr.s))
+  proj.M = LUFactorized(M, proj.s - 1)   # NB allow for s - 1 column updates before recomputing lu factorization
 
   proj.latestIdx = proj.s
   proj.oldestIdx = idr.s - proj.s + 1

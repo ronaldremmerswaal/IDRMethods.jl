@@ -100,9 +100,8 @@ function expand!{T}(idr::BiOSpace{T}, proj::BiOProjector{T})
     gemv!('N', one(T), unsafe_view(idr.W, :, idr.latestIdx : idr.s), unsafe_view(proj.α, idr.latestIdx : idr.s), proj.ω, idr.v)
   end
 
-  idr.W[:, idr.latestIdx] = idr.v
+  copy!(unsafe_view(idr.W, :, idr.latestIdx), idr.v)
   A_mul_B!(unsafe_view(idr.G, :, idr.latestIdx), idr.A, idr.v)
-
 end
 
 @inline function mapToIDRSpace!{T}(idr::BiOSpace{T}, proj::BiOProjector{T})
@@ -122,8 +121,8 @@ function update!{T}(idr::BiOSpace{T}, proj::BiOProjector{T}, k, iter)
     # NB Scale G such that diag(proj.M) = eye(s)
     # TODO check if inner product nonzero..
     tmp = vecdot(unsafe_view(proj.R0, :, k), unsafe_view(idr.G, :, k))
-    scale!(unsafe_view(idr.G, :, k), 1. / tmp)
-    scale!(unsafe_view(idr.W, :, k), 1 ./ tmp)
+    scale!(unsafe_view(idr.G, :, k), one(T) / tmp)
+    scale!(unsafe_view(idr.W, :, k), one(T) / tmp)
 
     idr.β = proj.m[k]
   end
@@ -172,15 +171,15 @@ function update!{T}(sol::QMRSmoothedSolution{T}, idr::BiOSpace{T}, proj::BiOProj
   axpy!(idr.β, unsafe_view(idr.W, :, idr.latestIdx), sol.v)
 
   sol.η = vecnorm(sol.s - sol.u) ^ 2
-  sol.τ = 1. / (1. / sol.τ + 1 ./ sol.η)
+  sol.τ = one(T) / (one(T) / sol.τ + one(T) / sol.η)
 
   ratio = sol.τ / sol.η
 
   axpy!(-ratio, sol.u, sol.s)
   axpy!(ratio, sol.v, sol.x)
 
-  scale!(sol.u, 1. - ratio)
-  scale!(sol.v, 1. - ratio)
+  scale!(sol.u, one(T) - ratio)
+  scale!(sol.v, one(T) - ratio)
 
   push!(sol.ρ, vecnorm(sol.s))
 end
@@ -198,8 +197,8 @@ function update!{T}(sol::MRSmoothedSolution{T}, idr::BiOSpace{T}, proj::BiOProje
   axpy!(-ratio, sol.u, sol.s)
   axpy!(ratio, sol.v, sol.x)
 
-  scale!(sol.u, 1. - ratio)
-  scale!(sol.v, 1. - ratio)
+  scale!(sol.u, one(T) - ratio)
+  scale!(sol.v, one(T) - ratio)
 
   push!(sol.ρ, vecnorm(sol.s))
 end

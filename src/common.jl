@@ -33,7 +33,7 @@ type NormalSolution{T} <: Solution{T}
   r
 
 end
-NormalSolution{T}(x::DenseVector{T}, ρ, tol, r0) = NormalSolution{T}(x, [ρ], ρ, tol, r0)
+NormalSolution{T}(x::StridedVector{T}, ρ, tol, r0) = NormalSolution{T}(x, [ρ], ρ, tol, r0)
 
 abstract type SmoothedSolution{T} <: Solution{T} end
 
@@ -57,7 +57,7 @@ type QMRSmoothedSolution{T} <: SmoothedSolution{T}
   v
 
 end
-QMRSmoothedSolution{T}(x::DenseVector{T}, ρ, tol, r0) = QMRSmoothedSolution{T}([ρ], ρ, tol, r0, ρ ^ 2, ρ ^ 2, x, copy(r0), zeros(T, size(r0)), zeros(T, size(r0)))
+QMRSmoothedSolution{T}(x::StridedVector{T}, ρ, tol, r0) = QMRSmoothedSolution{T}([ρ], ρ, tol, r0, ρ ^ 2, ρ ^ 2, x, copy(r0), zeros(T, size(r0)), zeros(T, size(r0)))
 
 type MRSmoothedSolution{T} <: SmoothedSolution{T}
   ρ
@@ -72,7 +72,7 @@ type MRSmoothedSolution{T} <: SmoothedSolution{T}
   v
 
 end
-MRSmoothedSolution{T}(x::DenseVector{T}, ρ, tol, r0) = MRSmoothedSolution{T}([ρ], ρ, tol, r0, x, copy(r0), zeros(T, size(r0)), zeros(T, size(r0)))
+MRSmoothedSolution{T}(x::StridedVector{T}, ρ, tol, r0) = MRSmoothedSolution{T}([ρ], ρ, tol, r0, x, copy(r0), zeros(T, size(r0)), zeros(T, size(r0)))
 
 
 function nextIDRSpace!{T}(proj::Projector, idr::IDRSpace{T})
@@ -92,7 +92,7 @@ function nextIDRSpace!{T}(proj::Projector, idr::IDRSpace{T})
 
 end
 
-function orthogonalize!{T}(g::DenseVector{T}, G::DenseMatrix{T}, h::DenseVector{T}, orthT::ClassicalGS)
+function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::ClassicalGS)
   Ac_mul_B!(h, G, g)
   gemv!('N', -one(T), G, h, one(T), g)
 
@@ -100,7 +100,7 @@ function orthogonalize!{T}(g::DenseVector{T}, G::DenseMatrix{T}, h::DenseVector{
 end
 
 # Orthogonalize g w.r.t. G, and store coeffs in h (NB g is not normalized)
-function orthogonalize!{T}(g::DenseVector{T}, G::DenseMatrix{T}, h::DenseVector{T}, orthT::RepeatedClassicalGS)
+function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::RepeatedClassicalGS)
   Ac_mul_B!(h, G, g)
   # println(0, ", normG = ", vecnorm(g), ", normH = ", vecnorm(h))
   gemv!('N', -one(T), G, h, one(T), g)
@@ -130,7 +130,7 @@ function orthogonalize!{T}(g::DenseVector{T}, G::DenseMatrix{T}, h::DenseVector{
   return normG
 end
 
-function orthogonalize!{T}(g::DenseVector{T}, G::DenseMatrix{T}, h::DenseVector{T}, orthT::ModifiedGS)
+function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::ModifiedGS)
   for l in 1 : length(h)
     h[l] = vecdot(unsafe_view(G, :, l), g)
     axpy!(-h[l], unsafe_view(G, :, l), g)
@@ -151,7 +151,7 @@ end
 end
 
 # To ensure contiguous memory, we often have to split the projections in 2 blocks
-function skewProject!{T}(v::DenseVector{T}, G1::DenseMatrix{T}, G2::DenseMatrix{T}, R0::DenseMatrix{T}, lu, α, u, uIdx1, uIdx2, m, skewT::SingleSkew)
+function skewProject!{T}(v::StridedVector{T}, G1::StridedMatrix{T}, G2::StridedMatrix{T}, R0::StridedMatrix{T}, lu, α, u, uIdx1, uIdx2, m, skewT::SingleSkew)
   Ac_mul_B!(m, R0, v)
   A_ldiv_B!(α, lu, m)
 
@@ -160,7 +160,7 @@ function skewProject!{T}(v::DenseVector{T}, G1::DenseMatrix{T}, G2::DenseMatrix{
   gemv!('N', -one(T), G2, unsafe_view(u, length(uIdx1) + 1 : length(u)), one(T), v)
 end
 
-function skewProject!{T}(v::DenseVector{T}, G::DenseMatrix{T}, R0::DenseMatrix{T}, lu, α, u, uIdx, m, skewT::SingleSkew)
+function skewProject!{T}(v::StridedVector{T}, G::StridedMatrix{T}, R0::StridedMatrix{T}, lu, α, u, uIdx, m, skewT::SingleSkew)
   Ac_mul_B!(m, R0, v)
   A_ldiv_B!(α, lu, m)
 

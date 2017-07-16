@@ -11,10 +11,10 @@ using Base.LinAlg
 include("harmenView.jl")
 
 type LUFactorized{T}
-  M::Matrix{T}
+  M::StridedMatrix{T}
   lu
 
-  U::Matrix{T}
+  U::StridedMatrix{T}
 
   maxNrUpdates::Int
 
@@ -22,7 +22,7 @@ type LUFactorized{T}
   updateIdxToCol::Vector{Int}
 
 end
-LUFactorized{T}(M::Matrix{T}, maxNrUpdates) = LUFactorized{T}(M, lufact(M), Matrix{T}(size(M, 1), maxNrUpdates), maxNrUpdates, 0, Vector{Int64}(maxNrUpdates))
+LUFactorized{T}(M::StridedMatrix{T}, maxNrUpdates) = LUFactorized{T}(M, lufact(M), Matrix{T}(size(M, 1), maxNrUpdates), maxNrUpdates, 0, Vector{Int64}(maxNrUpdates))
 
 # Replaces the idx-th column of M with m, where u = M \ m is provided
 function replaceColumn!{T}(F::LUFactorized{T}, colIdx::Int, m, u)
