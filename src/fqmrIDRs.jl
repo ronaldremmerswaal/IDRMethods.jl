@@ -139,7 +139,6 @@ function apply!{T}(proj::FQMRProjector{T}, idr::FQMRSpace{T})
 
   # Update permutations
   proj.gToMIdx[idr.latestIdx] = proj.latestIdx
-  proj.gToMIdx[proj.oldestIdx] = 0  # NB Only to find bugs easier...
 
   proj.oldestIdx = proj.oldestIdx > idr.s ? 1 : proj.oldestIdx + 1
 

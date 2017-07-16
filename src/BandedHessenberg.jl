@@ -17,17 +17,17 @@ export GivensBandedHessenberg, HHBandedHessenberg, addColumn!, apply!
 # Householder
 type HHBandedHessenberg{T} <: AbstractBandedHessenberg{T}
   bandWidth::Int
-  q::Vector{T}
+  q::StridedVector{T}
   ϕ::T
   φ::T
-  τ::Vector{T}
+  τ::StridedVector{T}
 
   nrCols
 
 end
 HHBandedHessenberg{T}(bandWidth, rho0::T) = HHBandedHessenberg{T}(bandWidth, Vector{T}(bandWidth + 1), zero(T), rho0, Vector{T}(bandWidth + 1), 0)
 
-function addColumn!{T}(H::HHBandedHessenberg{T}, r::Vector{T})
+function addColumn!{T}(H::HHBandedHessenberg{T}, r::StridedVector{T})
   H.q[1 : end - 1] = unsafe_view(H.q, 2 : H.bandWidth + 1)
   H.τ[1 : end - 1] = unsafe_view(H.τ, 2 : H.bandWidth + 1)
 
@@ -65,7 +65,7 @@ function applyProjections!{T}(r::StridedVector{T}, q::StridedVector{T}, τ::Stri
 end
 
 # NB modifies r as well (not clear from fcn name...)
-function addColumn!{T}(H::GivensBandedHessenberg{T}, r::Vector{T})
+function addColumn!{T}(H::GivensBandedHessenberg{T}, r::StridedVector{T})
   H.givensRotations[1 : end - 1] = unsafe_view(H.givensRotations, 2 : H.bandWidth + 1)
 
   startIdx = max(1, H.bandWidth + 1 - H.nrCols)
