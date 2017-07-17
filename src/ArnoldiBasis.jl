@@ -1,6 +1,6 @@
 module ArnoldiBasis
 
-export ArnoldiHH, expand!, getSolution, getSolution!, getBasis
+export ArnoldiHH, expand!, getSolution, getSolution!, getBasis, gmresHH
 
 include("harmenView.jl")
 
@@ -13,12 +13,31 @@ type ArnoldiHH{T}
 
   Qe1::StridedVector{T}   # Equals Q' * e1 * ρ0
   reduce::Bool
-  x0::StridedVector{T}
   ρ::Vector{T}
   givensRot::Vector{LinAlg.Givens{T}}
 end
 
-function ArnoldiHH{T}(A, r0::StridedVector{T}; s::Int = size(A, 1), reduce::Bool = true, x0 = zeros(T, size(A, 1)))
+function gmresHH(A, b; maxIt = length(b), x0::StridedVector = [], tol = sqrt(eps(real(eltype(b)))))
+  if length(x0) == 0
+    r0 = b
+    x0 = zeros(b)
+  else
+    r0 = b - A * x
+  end
+  arnold = ArnoldiHH(A, r0, s = maxIt + 1)
+
+  tol *= vecnorm(b)
+
+  for it = 1 : maxIt
+    if arnold.ρ[end] < tol
+      break
+    end
+    expand!(arnold)
+  end
+  return x0 + getSolution(arnold), arnold.ρ
+end
+
+function ArnoldiHH{T}(A, r0::StridedVector{T}; s::Int = size(A, 1), reduce::Bool = true)
   G = Matrix{T}(length(r0), s)
   G[:, 1] = r0
 
@@ -28,7 +47,7 @@ function ArnoldiHH{T}(A, r0::StridedVector{T}; s::Int = size(A, 1), reduce::Bool
   Qe1 = zeros(T, s)
   Qe1[1] = G[1, 1]
 
-  ArnoldiHH{T}(A, G, τ, 1, Qe1, reduce, x0, [abs(Qe1[1])], [])
+  ArnoldiHH{T}(A, G, τ, 1, Qe1, reduce, [abs(Qe1[1])], [])
 end
 
 function expand!{T}(arnold::ArnoldiHH{T})
@@ -46,65 +65,53 @@ function expand!{T}(arnold::ArnoldiHH{T})
   arnold.τ[arnold.latestIdx] = LinAlg.reflector!(unsafe_view(arnold.G, arnold.latestIdx : size(arnold.G, 1), arnold.latestIdx))
 
   if arnold.reduce
-    # Apply previous Givens new column
-    for φ ∈ arnold.givensRot
-      arnold.G[:, arnold.latestIdx] = φ * unsafe_view(arnold.G, :, arnold.latestIdx)
+    # Apply previous Givens to new column
+    for (idx, φ) ∈ enumerate(arnold.givensRot)
+      arnold.G[idx : idx + 1, arnold.latestIdx] = φ * unsafe_view(arnold.G, idx : idx + 1, arnold.latestIdx)
     end
 
-    if arnold.latestIdx <= size(arnold.G, 1)
+    if arnold.latestIdx ≤ size(arnold.G, 1)
       # New Givens for Hessenberg matrix
-      φ, arnold.G[arnold.latestIdx - 1, arnold.latestIdx] = LinAlg.givens(arnold.G, arnold.latestIdx - 1, arnold.latestIdx, arnold.latestIdx)
+      φ, arnold.G[arnold.latestIdx - 1, arnold.latestIdx] = LinAlg.givens(unsafe_view(arnold.G, arnold.latestIdx - 1 : arnold.latestIdx, arnold.latestIdx), 1, 2)
       push!(arnold.givensRot, φ)
 
       # Apply Givens to rhs of small system (Qe1)
-      arnold.Qe1 = φ * arnold.Qe1
-      push!(arnold.ρ, arnold.Qe1[arnold.latestIdx])
+      arnold.Qe1[arnold.latestIdx - 1 : arnold.latestIdx] = φ * unsafe_view(arnold.Qe1, arnold.latestIdx - 1 : arnold.latestIdx)
+      push!(arnold.ρ, abs(arnold.Qe1[arnold.latestIdx]))
     end
-
   end
 end
 
 @inline getSolution{T}(arnold::ArnoldiHH{T}) = getSolution!(Vector{T}(size(arnold.G, 1)), arnold)
 function getSolution!{T}(sol::StridedVector{T}, arnold::ArnoldiHH{T})
   if arnold.reduce
-    R = getReducedHessenberg(arnold)
-    Qe1 = unsafe_view(arnold.Qe1, 1 : arnold.latestIdx - 1)
+    α = getReducedHessenberg(arnold) \ unsafe_view(arnold.Qe1, 1 : arnold.latestIdx - 1)
   else
-    H = getHessenberg(arnold)
-    Q, R = qr(H)
-    Qe1 = Q' * arnold.Qe1[1 : min(arnold.latestIdx, size(arnold.G, 1))]
+    α = getHessenberg(arnold) \ arnold.Qe1[1 : min(arnold.latestIdx, size(arnold.G, 1))]
   end
-
-  return arnold.x0 + getLinearComBasisLagged(arnold, R \ Qe1)
+  return getLinearComBasis(arnold, α)
 end
 
 @inline function getColumn!{T}(col::StridedVector{T}, arnold::ArnoldiHH{T}, colIdx::Int)
   col[:] = zero(T)
   col[colIdx] = one(T)
-  return reflectorApply!(arnold, col, colIdx)
+  return reflectorReverseApply!(arnold, col, colIdx)
 end
 @inline getColumn{T}(arnold::ArnoldiHH{T}, colIdx::Int) = getColumn!(Vector{T}(size(arnold.G, 1)), arnold, colIdx)
 
-# Returns β = Qn * e1 * α1 + Qn * e2 * α2 + ...
+# Returns β = Qn' * e1 * α1 + Qn' * e2 * α2 + ...
 function getLinearComBasis!{T}(α1::StridedVector{T}, arnold::ArnoldiHH{T}, α::StridedVector{T})
   α1[1 : length(α)] = α
   α1[length(α) + 1 : end] = zero(T)
 
-  return reflectorApply!(arnold, α1)
+  return reflectorReverseApply!(arnold, α1)
 end
 @inline getLinearComBasis{T}(arnold::ArnoldiHH{T}, α::StridedVector{T}) = getLinearComBasis!(Vector{T}(size(arnold.G, 1)), arnold, α)
 
-# Returns β = Q1 * e1 * α1 + Q2 * e2 * α2 + ...
-function getLinearComBasisLagged!{T}(β::StridedVector{T}, arnold::ArnoldiHH{T}, α::StridedVector{T})
-  LinAlg.gemv!('N', one(T), reflectorApplyLagged!(arnold, eye(T, size(arnold.G, 1), length(α))), α, zero(T), β)
-  return β
-end
-@inline getLinearComBasisLagged{T}(arnold::ArnoldiHH{T}, α::StridedVector{T}) = getLinearComBasisLagged!(Vector{T}(size(arnold.G, 1)), arnold, α)
-
-@inline function getBasis{T}(arnold::ArnoldiHH{T})
-  basis = eye(T, size(arnold.G, 1), arnold.latestIdx)
-  for col = 1 : arnold.latestIdx
-    reflectorApply!(arnold, unsafe_view(basis, :, col), col)
+@inline function getBasis{T}(arnold::ArnoldiHH{T}, nrProj::Int = arnold.latestIdx)
+  basis = eye(T, size(arnold.G, 1), nrProj)
+  for col = 1 : nrProj
+    reflectorReverseApply!(arnold, unsafe_view(basis, :, col), nrProj)
   end
   return basis
 end
@@ -127,6 +134,14 @@ end
   return A
 end
 
+@inline function reflectorReverseApply!{T}(arnold::ArnoldiHH{T}, A::StridedVector, nrProj::Int = arnold.latestIdx)
+  n = size(arnold.G, 1)
+  for reflector = nrProj : -1 : 1
+    reflectorApply!(unsafe_view(arnold.G, reflector : n, reflector), arnold.τ[reflector], unsafe_view(A, reflector : n))
+  end
+  return A
+end
+
 @inline function reflectorApply!{T}(arnold::ArnoldiHH{T}, A::StridedMatrix, nrProj::Int = arnold.latestIdx)
   n = size(arnold.G, 1)
   for col = 1 : size(A, 2)
@@ -135,33 +150,18 @@ end
   return A
 end
 
-# Returns [Q1 e1 Q2 e2, ..., ] * A
-@inline function reflectorApplyLagged!{T}(arnold::ArnoldiHH{T}, A::StridedMatrix)
-  n = size(arnold.G, 1)
-  for col = 1 : size(A, 2)
-    reflectorApply!(arnold, unsafe_view(A, :, col), col)
-  end
-  return A
-end
-
 # NB copy from julia base, but now for a vector
 @inline function reflectorApply!(x::AbstractVector, τ::Number, A::StridedVector)
   m = length(A)
-  @inbounds begin
-    # dot
-    vAj = A[1]
-    for i = 2:m
-        vAj += x[i]'*A[i]
-    end
 
-    vAj = τ'*vAj
+  # dot
+  vAj = A[1] + vecdot(unsafe_view(x, 2 : m), unsafe_view(A, 2 : m))
+  vAj = τ' * vAj
 
-    # ger
-    A[1] -= vAj
-    for i = 2:m
-        A[i] -= x[i]*vAj
-    end
-  end
+  # ger
+  A[1] -= vAj
+  LinAlg.axpy!(-vAj, unsafe_view(x, 2 : m), unsafe_view(A, 2 : m))
+
 end
 
 function testArnoldiRelation(n, s)
@@ -173,14 +173,13 @@ function testArnoldiRelation(n, s)
   for it = 1 : s
     expand!(arnold)
 
-    GL = reflectorApplyLagged!(arnold, eye(n, it))
-    GR = reflectorApply!(arnold, eye(n, n), it + 1)
+    GL = getBasis(arnold, it)
+    GR = getBasis(arnold, it + 1)
 
-    H = zeros(n, it)
-    H[1 : it + 1, 1 : it] = getHessenberg(arnold)
+    H = getHessenberg(arnold)
 
     # Verify Arnoldi-type relation
-    res = A * GL - GR' * H
+    res = A * GL - GR * H
     println("Arnoldi relation residual norm = ", vecnorm(res))
 
   end
@@ -198,6 +197,7 @@ function testSolution(n, s)
     expand!(arnoldURed)
 
     println("Reduced:   ", vecnorm(A * getSolution(arnoldRed) - r0))
+    println("Red. estim:", arnoldRed.ρ[end])
     println("Unreduced: ", vecnorm(A * getSolution(arnoldURed) - r0))
   end
 
