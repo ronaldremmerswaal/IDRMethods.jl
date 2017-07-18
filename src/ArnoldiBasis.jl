@@ -4,8 +4,10 @@ export ArnoldiHH, expand!, getSolution, getSolution!, getBasis, gmresHH
 
 include("harmenView.jl")
 
-# Iteratively builds the Arnoldi basis using Householder reflections; without storing the Hessenberg matrix.
-type ArnoldiHH{T}
+abstract type Arnoldi end
+
+# Iteratively builds the Arnoldi basis using Householder reflections
+type ArnoldiHH{T} <: Arnoldi
   A
   G::StridedMatrix{T}
   τ::StridedVector{T}
@@ -15,8 +17,24 @@ type ArnoldiHH{T}
   reduce::Bool
   ρ::Vector{T}
   givensRot::Vector{LinAlg.Givens{T}}
+
+  g::StridedVector{T}
 end
 
+function ArnoldiHH{T}(A, r0::StridedVector{T}; s::Int = size(A, 1), reduce::Bool = true)
+  G = Matrix{T}(length(r0), s)
+  G[:, 1] = r0
+
+  τ = Vector{T}(s)
+  τ[1] = LinAlg.reflector!(unsafe_view(G, :, 1))
+
+  Qe1 = zeros(T, s)
+  Qe1[1] = G[1, 1]
+
+  ArnoldiHH{T}(A, G, τ, 1, Qe1, reduce, [abs(Qe1[1])], [], Vector{T}(length(r0)))
+end
+
+# Householder GMRes
 function gmresHH(A, b; maxIt = length(b), x0::StridedVector = [], tol = sqrt(eps(real(eltype(b)))))
   if length(x0) == 0
     r0 = b
@@ -37,25 +55,18 @@ function gmresHH(A, b; maxIt = length(b), x0::StridedVector = [], tol = sqrt(eps
   return x0 + getSolution(arnold), arnold.ρ
 end
 
-function ArnoldiHH{T}(A, r0::StridedVector{T}; s::Int = size(A, 1), reduce::Bool = true)
-  G = Matrix{T}(length(r0), s)
-  G[:, 1] = r0
-
-  τ = Vector{T}(s)
-  τ[1] = LinAlg.reflector!(unsafe_view(G, :, 1))
-
-  Qe1 = zeros(T, s)
-  Qe1[1] = G[1, 1]
-
-  ArnoldiHH{T}(A, G, τ, 1, Qe1, reduce, [abs(Qe1[1])], [])
+function expand!{T}(arnold::ArnoldiHH{T})
+  # MV
+  g = zeros(T, size(arnold.G, 1))
+  A_mul_B!(g, arnold.A, getBasisColumn!(arnold.g, arnold, arnold.latestIdx))
+  expand!(arnold, g)
 end
 
-function expand!{T}(arnold::ArnoldiHH{T})
+function expand!{T}(arnold::ArnoldiHH{T}, g::StridedVector{T})
   if arnold.latestIdx == size(arnold.G, 2)
     error("Maxiumum size reached")
   end
-  # MV
-  A_mul_B!(unsafe_view(arnold.G, :, arnold.latestIdx + 1), arnold.A, getColumn(arnold, arnold.latestIdx))
+  arnold.G[:, arnold.latestIdx + 1] = g
 
   # Apply previous reflections
   reflectorApply!(arnold, unsafe_view(arnold.G, :, arnold.latestIdx + 1))
@@ -92,12 +103,16 @@ function getSolution!{T}(sol::StridedVector{T}, arnold::ArnoldiHH{T})
   return getLinearComBasis(arnold, α)
 end
 
-@inline function getColumn!{T}(col::StridedVector{T}, arnold::ArnoldiHH{T}, colIdx::Int)
+@inline function getBasisColumn!{T}(col::StridedVector{T}, arnold::ArnoldiHH{T}, colIdx::Int)
   col[:] = zero(T)
   col[colIdx] = one(T)
   return reflectorReverseApply!(arnold, col, colIdx)
 end
-@inline getColumn{T}(arnold::ArnoldiHH{T}, colIdx::Int) = getColumn!(Vector{T}(size(arnold.G, 1)), arnold, colIdx)
+@inline getBasisColumn{T}(arnold::ArnoldiHH{T}, colIdx::Int) = getBasisColumn!(Vector{T}(size(arnold.G, 1)), arnold, colIdx)
+
+function getHessenbergColumn{T}(arnold::ArnoldiHH{T}, colIdx)
+  return arnold.G[1 : colIdx + 1, colIdx + 1]
+end
 
 # Returns β = Qn' * e1 * α1 + Qn' * e2 * α2 + ...
 function getLinearComBasis!{T}(α1::StridedVector{T}, arnold::ArnoldiHH{T}, α::StridedVector{T})
@@ -202,5 +217,4 @@ function testSolution(n, s)
   end
 
 end
-
 end

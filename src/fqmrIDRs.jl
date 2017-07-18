@@ -98,14 +98,14 @@ function fqmrIDRs{T}(A, b::StridedVector{T}; s = 8, tol = sqrt(eps(real(T))), ma
     skewT = RepeatSkew(orthOne, orthTol, skewRepeat)
   end
   rho0 = vecnorm(r0)
-  scale!(r0, 1.0 / rho0)
+  scale!(r0, one(T) / rho0)
   if hesOrth == "HH"
     hes = HHBandedHessenberg(s + 1, rho0)
   elseif hesOrth == "Givens"
     hes = GivensBandedHessenberg(s + 1, rho0)
   end
   idrSpace = FQMRSpace(A, P, r0, s, rho0, orthT, hes)
-  idrSpace.W[:, 1] = 0.0
+  idrSpace.W[:, 1] = zero(T)
   idrSpace.G[:, 1] = r0
   solution = FQMRSolution(x0, rho0, tol)
   projector = FQMRProjector(size(b, 1), projDim, R0, kappa, orthSearch, skewT, T)
