@@ -44,7 +44,7 @@ function gmresHH(A, b; maxIt = length(b), x0::StridedVector = [], tol = sqrt(eps
   end
   arnold = ArnoldiHH(A, r0, s = maxIt + 1)
 
-  tol *= vecnorm(b)
+  tol *= norm(b)
 
   for it = 1 : maxIt
     if arnold.ρ[end] < tol
@@ -170,7 +170,7 @@ end
   m = length(A)
 
   # dot
-  vAj = A[1] + vecdot(unsafe_view(x, 2 : m), unsafe_view(A, 2 : m))
+  vAj = A[1] + dot(unsafe_view(x, 2 : m), unsafe_view(A, 2 : m))
   vAj = τ' * vAj
 
   # ger
@@ -195,7 +195,7 @@ function testArnoldiRelation(n, s)
 
     # Verify Arnoldi-type relation
     res = A * GL - GR * H
-    println("Arnoldi relation residual norm = ", vecnorm(res))
+    println("Arnoldi relation residual norm = ", norm(res))
 
   end
 end
@@ -211,9 +211,9 @@ function testSolution(n, s)
     expand!(arnoldRed)
     expand!(arnoldURed)
 
-    println("Reduced:   ", vecnorm(A * getSolution(arnoldRed) - r0))
+    println("Reduced:   ", norm(A * getSolution(arnoldRed) - r0))
     println("Red. estim:", arnoldRed.ρ[end])
-    println("Unreduced: ", vecnorm(A * getSolution(arnoldURed) - r0))
+    println("Unreduced: ", norm(A * getSolution(arnoldURed) - r0))
   end
 
 end

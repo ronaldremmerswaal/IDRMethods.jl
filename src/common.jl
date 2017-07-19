@@ -79,11 +79,11 @@ function nextIDRSpace!{T}(proj::Projector, idr::IDRSpace{T})
   proj.j += 1
 
   # Compute residual minimizing μ
-  ν = vecdot(unsafe_view(idr.G, :, idr.latestIdx), idr.v)
-  τ = vecdot(unsafe_view(idr.G, :, idr.latestIdx), unsafe_view(idr.G, :, idr.latestIdx))
+  ν = dot(unsafe_view(idr.G, :, idr.latestIdx), idr.v)
+  τ = dot(unsafe_view(idr.G, :, idr.latestIdx), unsafe_view(idr.G, :, idr.latestIdx))
 
   proj.ω = ν / τ
-  η = ν / (sqrt(τ) * vecnorm(idr.v))
+  η = ν / (sqrt(τ) * norm(idr.v))
   if abs(η) < proj.κ
     proj.ω *= proj.κ / abs(η)
   end
@@ -96,20 +96,20 @@ function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedV
   Ac_mul_B!(h, G, g)
   gemv!('N', -one(T), G, h, one(T), g)
 
-  return vecnorm(g)
+  return norm(g)
 end
 
 # Orthogonalize g w.r.t. G, and store coeffs in h (NB g is not normalized)
 function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::RepeatedClassicalGS)
   Ac_mul_B!(h, G, g)
-  # println(0, ", normG = ", vecnorm(g), ", normH = ", vecnorm(h))
+  # println(0, ", normG = ", norm(g), ", normH = ", norm(h))
   gemv!('N', -one(T), G, h, one(T), g)
 
-  normG = vecnorm(g)
-  normH = vecnorm(h)
+  normG = norm(g)
+  normH = norm(h)
 
   happy = normG < orthT.one * normH || normH < orthT.tol * normG
-  # println(1, ", normG = ", normG, ", normH = ", vecnorm(G' * g))
+  # println(1, ", normG = ", normG, ", normH = ", norm(G' * g))
   if happy return normG end
 
   for idx = 2 : orthT.maxRepeat
@@ -120,8 +120,8 @@ function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedV
 
     axpy!(one(T), updateH, h)
 
-    normG = vecnorm(g)
-    normH = vecnorm(updateH)
+    normG = norm(g)
+    normH = norm(updateH)
     # println(idx, ", normG = ", normG, ", normH = ", normH)
     happy = normG < orthT.one * normH || normH < orthT.tol * normG
     if happy break end
@@ -132,10 +132,10 @@ end
 
 function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::ModifiedGS)
   for l in 1 : length(h)
-    h[l] = vecdot(unsafe_view(G, :, l), g)
+    h[l] = dot(unsafe_view(G, :, l), g)
     axpy!(-h[l], unsafe_view(G, :, l), g)
   end
-  return vecnorm(g)
+  return norm(g)
 end
 
 @inline function isConverged{T}(sol::Solution{T})
@@ -177,7 +177,7 @@ end
 #   gemv!('N', -1.0, G1, unsafe_view(u, idx1), 1.0, v)
 #   gemv!('N', -1.0, G2, unsafe_view(u, idx2), 1.0, v)
 #
-#   happy = vecnorm(v) < skewT.one * vecnorm(u)
+#   happy = norm(v) < skewT.one * norm(u)
 #
 #   if happy return end
 #
@@ -195,7 +195,7 @@ end
 #     axpy!(1.0, mUpdate, m)
 #     axpy!(1.0, uUpdate, u)
 #
-#     happy = vecnorm(v) > skewT.one * vecnorm(uUpdate)
+#     happy = norm(v) > skewT.one * norm(uUpdate)
 #     if happy break end
 #   end
 # end

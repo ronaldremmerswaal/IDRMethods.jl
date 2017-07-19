@@ -97,7 +97,7 @@ function fqmrIDRs{T}(A, b::StridedVector{T}; s = 8, tol = sqrt(eps(real(T))), ma
   else
     skewT = RepeatSkew(orthOne, orthTol, skewRepeat)
   end
-  rho0 = vecnorm(r0)
+  rho0 = norm(r0)
   scale!(r0, one(T) / rho0)
   if hesOrth == "HH"
     hes = HHBandedHessenberg(s + 1, rho0)
@@ -191,7 +191,7 @@ function updateG!{T}(idr::FQMRSpace{T}, k)
   if k < idr.s + 1
     idr.r[end] = orthogonalize!(unsafe_view(idr.G, :, idr.latestIdx), unsafe_view(idr.G, :, 1 : k), unsafe_view(idr.r, idr.s + 3 - k : idr.s + 2), idr.orthT)
   else
-    idr.r[end] = vecnorm(unsafe_view(idr.G, :, idr.latestIdx))
+    idr.r[end] = norm(unsafe_view(idr.G, :, idr.latestIdx))
   end
 
   scale!(unsafe_view(idr.G, :, idr.latestIdx), one(T) / idr.r[end])

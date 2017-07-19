@@ -49,7 +49,7 @@ function biIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1
     r0 = b - A * x0
   end
 
-  rho0 = vecnorm(r0)
+  rho0 = norm(r0)
   if smoothing == "none"
     solution = NormalSolution(x0, rho0, tol, r0)
   elseif smoothing == "MR"
@@ -120,7 +120,7 @@ function update!{T}(idr::BiOSpace{T}, proj::BiOProjector{T}, k, iter)
 
     # NB Scale G such that diag(proj.M) = eye(s)
     # TODO check if inner product nonzero..
-    tmp = vecdot(unsafe_view(proj.R0, :, k), unsafe_view(idr.G, :, k))
+    tmp = dot(unsafe_view(proj.R0, :, k), unsafe_view(idr.G, :, k))
     scale!(unsafe_view(idr.G, :, k), one(T) / tmp)
     scale!(unsafe_view(idr.W, :, k), one(T) / tmp)
 
@@ -131,7 +131,7 @@ end
 function biOrthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, R0::StridedMatrix{T}, endIdx::Int)
   α = Vector{T}(endIdx)
   for j = 1 : endIdx
-    α[j] = vecdot(unsafe_view(R0, :, j), g)
+    α[j] = dot(unsafe_view(R0, :, j), g)
     axpy!(-α[j], unsafe_view(G, :, j), g)
   end
   return α
@@ -158,7 +158,7 @@ end
 function update!{T}(sol::NormalSolution{T}, idr::BiOSpace{T}, proj::BiOProjector{T})
   axpy!(-idr.β, unsafe_view(idr.G, :, idr.latestIdx), sol.r)
   axpy!(idr.β, unsafe_view(idr.W, :, idr.latestIdx), sol.x)
-  push!(sol.ρ, vecnorm(sol.r))
+  push!(sol.ρ, norm(sol.r))
   copy!(idr.v, sol.r)
 end
 
@@ -170,7 +170,7 @@ function update!{T}(sol::QMRSmoothedSolution{T}, idr::BiOSpace{T}, proj::BiOProj
   axpy!(idr.β, unsafe_view(idr.G, :, idr.latestIdx), sol.u)
   axpy!(idr.β, unsafe_view(idr.W, :, idr.latestIdx), sol.v)
 
-  sol.η = vecnorm(sol.s - sol.u) ^ 2
+  sol.η = norm(sol.s - sol.u) ^ 2
   sol.τ = one(T) / (one(T) / sol.τ + one(T) / sol.η)
 
   ratio = sol.τ / sol.η
@@ -181,7 +181,7 @@ function update!{T}(sol::QMRSmoothedSolution{T}, idr::BiOSpace{T}, proj::BiOProj
   scale!(sol.u, one(T) - ratio)
   scale!(sol.v, one(T) - ratio)
 
-  push!(sol.ρ, vecnorm(sol.s))
+  push!(sol.ρ, norm(sol.s))
 end
 
 function update!{T}(sol::MRSmoothedSolution{T}, idr::BiOSpace{T}, proj::BiOProjector{T})
@@ -192,7 +192,7 @@ function update!{T}(sol::MRSmoothedSolution{T}, idr::BiOSpace{T}, proj::BiOProje
   axpy!(idr.β, unsafe_view(idr.G, :, idr.latestIdx), sol.u)
   axpy!(idr.β, unsafe_view(idr.W, :, idr.latestIdx), sol.v)
 
-  ratio = vecdot(sol.s, sol.u) / vecdot(sol.u, sol.u)
+  ratio = dot(sol.s, sol.u) / dot(sol.u, sol.u)
 
   axpy!(-ratio, sol.u, sol.s)
   axpy!(ratio, sol.v, sol.x)
@@ -200,5 +200,5 @@ function update!{T}(sol::MRSmoothedSolution{T}, idr::BiOSpace{T}, proj::BiOProje
   scale!(sol.u, one(T) - ratio)
   scale!(sol.v, one(T) - ratio)
 
-  push!(sol.ρ, vecnorm(sol.s))
+  push!(sol.ρ, norm(sol.s))
 end

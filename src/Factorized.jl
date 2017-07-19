@@ -83,7 +83,7 @@ function test(s, nrReplace)
     xfac = copy(b)
     A_ldiv_B!(xfac, F, b)
 
-    println("Relative error w.r.t. lu = ", vecnorm(xlu - xfac) / vecnorm(xlu))
+    println("Relative error w.r.t. lu = ", norm(xlu - xfac) / norm(xlu))
 
   end
 
