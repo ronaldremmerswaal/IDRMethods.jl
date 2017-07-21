@@ -105,10 +105,13 @@ function expand!{T}(idr::BiOSpace{T}, proj::BiOProjector{T})
 end
 
 @inline function mapToIDRSpace!{T}(idr::BiOSpace{T}, proj::BiOProjector{T})
-  # Do nothing, this is done inside expand!
+  if idr.latestIdx == idr.s + 1
+    nextIDRSpace!(proj, idr)
+  end
 end
 
-function update!{T}(idr::BiOSpace{T}, proj::BiOProjector{T}, k, iter)
+function update!{T}(idr::BiOSpace{T}, proj::BiOProjector{T})
+  k = idr.latestIdx
   if k == idr.s + 1
     idr.β = proj.ω
   else

@@ -167,10 +167,11 @@ function expand!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T})
   A_mul_B!(unsafe_view(idr.G, :, idr.latestIdx), idr.A, idr.vhat)
 end
 
-function update!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T}, k, iter)
+function update!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T})
+  k = idr.latestIdx == 1 ? idr.s + 1 : idr.latestIdx - 1
   updateG!(idr, k)
-  updateHes!(idr, proj, k, iter)
-  updateW!(idr, k, iter)
+  updateHes!(idr, proj, k)
+  updateW!(idr, proj, k)
 end
 
 function updateG!{T}(idr::FQMRSpace{T}, k)
@@ -188,7 +189,7 @@ function updateG!{T}(idr::FQMRSpace{T}, k)
 end
 
 # Updates the QR factorization of H
-function updateHes!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T}, k, iter)
+function updateHes!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T}, k)
 
   if proj.j > 0
     # Add contribution due to projector
@@ -200,14 +201,17 @@ function updateHes!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T}, k, iter)
 end
 
 @inline function mapToIDRSpace!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T})
+  if idr.latestIdx == 1
+    nextIDRSpace!(proj, idr)
+  end
   if proj.j > 0
     axpy!(-proj.μ, idr.v, unsafe_view(idr.G, :, idr.latestIdx));
   end
 end
 
-function updateW!{T}(idr::FQMRSpace{T}, k, iter)
+function updateW!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T}, k)
   oneOverR = one(T) / idr.r[end - 1]
-  if iter > idr.s
+  if proj.j ≥ 1
     gemv!('N', -oneOverR, idr.W, idr.r[[idr.s + 2 - k : idr.s + 1; 1 : idr.s + 1 - k]], oneOverR, idr.vhat)
   else
     gemv!('N', -oneOverR, unsafe_view(idr.W, :, 1 : k), unsafe_view(idr.r, idr.s + 2 - k : idr.s + 1), oneOverR, idr.vhat)

@@ -13,31 +13,25 @@ include("biIDRs.jl")
 function IDRMethod{T}(solution::Solution{T}, idrSpace::IDRSpace{T}, projector::Projector{T}, maxIt)
 
   iter = 0
-  s = idrSpace.s
   while true
-    for k in 1 : s + 1
-      iter += 1
+    iter += 1
 
-      # Compute u, v: the skew-projection of g along G orthogonal to R0 (for which v = (I - G * inv(M) * R0) * g)
-      update!(projector, idrSpace)
-      apply!(projector, idrSpace)
+    # Project g along G orthogonal to R0: v = (I - G (R0'G)^-1 R0') g
+    update!(projector, idrSpace)
+    apply!(projector, idrSpace)
 
-      # Compute g = A * v
-      expand!(idrSpace, projector)
+    # Compute g = A * v
+    expand!(idrSpace, projector)
 
-      if k == s + 1
-        nextIDRSpace!(projector, idrSpace)
-      end
-      # Compute t = (A - μ * I) * g
-      mapToIDRSpace!(idrSpace, projector)
+    # Compute t = (A - μ I) v
+    mapToIDRSpace!(idrSpace, projector)
 
-      # Update basis of G
-      update!(idrSpace, projector, k, iter)
+    # Update basis of G: g = (I - G G') t; g <- g / |g|
+    update!(idrSpace, projector)
 
-      update!(solution, idrSpace, projector)
-      if isConverged(solution) || iter == maxIt
-        return solution.x, solution.ρ
-      end
+    update!(solution, idrSpace, projector)
+    if isConverged(solution) || iter == maxIt
+      return solution.x, solution.ρ
     end
   end
 end
