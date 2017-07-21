@@ -82,21 +82,9 @@ function fqmrIDRs{T}(A, b::StridedVector{T}; s = 8, tol = sqrt(eps(real(T))), ma
     r0 = b - A * x0
   end
 
-  orthOne = one(real(T)) / √2
+  orthT = OrthType{orth}(one(real(T)) / √2, orthTol, orthRepeat)
+  skewT = SkewType{skewRepeat}(one(real(T)) / √2, orthTol, skewRepeat)
 
-  if orth == :RCGS
-    orthT = RepeatedClassicalGS(orthOne, orthTol, orthRepeat)
-  elseif orth == :CGS
-    orthT = ClassicalGS()
-  elseif orth == :MGS
-    orthT = ModifiedGS()
-  end
-
-  if skewRepeat == 1
-    skewT = SingleSkew()
-  else
-    skewT = RepeatSkew(orthOne, orthTol, skewRepeat)
-  end
   rho0 = norm(r0)
   scale!(r0, one(T) / rho0)
   if hesOrth == :HH

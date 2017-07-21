@@ -4,24 +4,16 @@ type Preconditioner end
 abstract type Projector{T} end
 abstract type IDRSpace{T} end
 
-abstract type OrthType end
-type ClassicalGS <: OrthType
-end
-type RepeatedClassicalGS <: OrthType
+type OrthType{Method}
   one
   tol
   maxRepeat
-end
-type ModifiedGS <: OrthType
 end
 
-abstract type SkewType end
-type RepeatSkew <: SkewType
+type SkewType{Method}
   one
   tol
   maxRepeat
-end
-type SingleSkew <: SkewType
 end
 
 abstract type Solution{T} end
@@ -92,7 +84,7 @@ function nextIDRSpace!{T}(proj::Projector, idr::IDRSpace{T})
 
 end
 
-function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::ClassicalGS)
+function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::OrthType{:CGS})
   Ac_mul_B!(h, G, g)
   gemv!('N', -one(T), G, h, one(T), g)
 
@@ -100,7 +92,7 @@ function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedV
 end
 
 # Orthogonalize g w.r.t. G, and store coeffs in h (NB g is not normalized)
-function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::RepeatedClassicalGS)
+function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::OrthType{:RCGS})
   Ac_mul_B!(h, G, g)
   # println(0, ", normG = ", norm(g), ", normH = ", norm(h))
   gemv!('N', -one(T), G, h, one(T), g)
@@ -130,7 +122,7 @@ function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedV
   return normG
 end
 
-function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::ModifiedGS)
+function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::OrthType{:MGS})
   for l in 1 : length(h)
     h[l] = dot(unsafe_view(G, :, l), g)
     axpy!(-h[l], unsafe_view(G, :, l), g)
@@ -151,7 +143,7 @@ end
 end
 
 # To ensure contiguous memory, we often have to split the projections in 2 blocks
-function skewProject!{T}(v::StridedVector{T}, G1::StridedMatrix{T}, G2::StridedMatrix{T}, R0::StridedMatrix{T}, lu, α, u, uIdx1, uIdx2, m, skewT::SingleSkew)
+function skewProject!{T}(v::StridedVector{T}, G1::StridedMatrix{T}, G2::StridedMatrix{T}, R0::StridedMatrix{T}, lu, α, u, uIdx1, uIdx2, m, skewT::SkewType)
   Ac_mul_B!(m, R0, v)
   A_ldiv_B!(α, lu, m)
 
@@ -160,7 +152,7 @@ function skewProject!{T}(v::StridedVector{T}, G1::StridedMatrix{T}, G2::StridedM
   gemv!('N', -one(T), G2, unsafe_view(u, length(uIdx1) + 1 : length(u)), one(T), v)
 end
 
-function skewProject!{T}(v::StridedVector{T}, G::StridedMatrix{T}, R0::StridedMatrix{T}, lu, α, u, uIdx, m, skewT::SingleSkew)
+function skewProject!{T}(v::StridedVector{T}, G::StridedMatrix{T}, R0::StridedMatrix{T}, lu, α, u, uIdx, m, skewT::SkewType{1})
   Ac_mul_B!(m, R0, v)
   A_ldiv_B!(α, lu, m)
 
