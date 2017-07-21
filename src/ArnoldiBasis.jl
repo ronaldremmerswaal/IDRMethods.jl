@@ -2,7 +2,7 @@ module ArnoldiBasis
 
 export ArnoldiHH, expand!, getSolution, getSolution!, getBasis, gmresHH
 
-include("harmenView.jl")
+include("IDRMethods.jl/src/harmenView.jl")
 
 abstract type Arnoldi end
 

@@ -1,5 +1,5 @@
-using Factorized
-using BandedHessenberg
+include("factorized.jl")
+include("bandedHessenberg.jl")
 
 type FQMRSolution{T} <: Solution{T}
   x::StridedVector{T}
@@ -66,7 +66,7 @@ FQMRProjector(n, s, R0, κ, orthSearch, skewT, T) = FQMRProjector{T}(n, s, 0, ze
 #     "Flexible and multi‐shift induced dimension reduction algorithms for solving large sparse linear systems."
 #     Numerical Linear Algebra with Applications 22.1 (2015): 1-25.
 #
-function fqmrIDRs{T}(A, b::StridedVector{T}; s = 8, tol = sqrt(eps(real(T))), maxIt = size(b, 1), x0 = Vector{T}(), P = Identity(), R0 = Matrix{T}(0, 0), orthTol = eps(real(T)), orthSearch = false, kappa = 0.7, orth = "MGS", hesOrth = "HH", skewRepeat = 1, orthRepeat = 3, projDim = s)
+function fqmrIDRs{T}(A, b::StridedVector{T}; s = 8, tol = sqrt(eps(real(T))), maxIt = size(b, 1), x0 = Vector{T}(), P = Identity(), R0 = Matrix{T}(0, 0), orthTol = eps(real(T)), orthSearch = false, kappa = 0.7, orth = :MGS, hesOrth = :HH, skewRepeat = 1, orthRepeat = 3, projDim = s)
 
   if length(R0) > 0 && size(R0) != (length(b), projDim)
     error("size(R0) != [", length(b), ", $s] (User provided shadow residuals are of incorrect size)")
@@ -84,11 +84,11 @@ function fqmrIDRs{T}(A, b::StridedVector{T}; s = 8, tol = sqrt(eps(real(T))), ma
 
   orthOne = one(real(T)) / √2
 
-  if orth == "RCGS"
+  if orth == :RCGS
     orthT = RepeatedClassicalGS(orthOne, orthTol, orthRepeat)
-  elseif orth == "CGS"
+  elseif orth == :CGS
     orthT = ClassicalGS()
-  elseif orth == "MGS"
+  elseif orth == :MGS
     orthT = ModifiedGS()
   end
 
@@ -99,7 +99,7 @@ function fqmrIDRs{T}(A, b::StridedVector{T}; s = 8, tol = sqrt(eps(real(T))), ma
   end
   rho0 = norm(r0)
   scale!(r0, one(T) / rho0)
-  if hesOrth == "HH"
+  if hesOrth == :HH
     hes = HHBandedHessenberg(s + 1, rho0)
   elseif hesOrth == "Givens"
     hes = GivensBandedHessenberg(s + 1, rho0)

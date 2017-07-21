@@ -1,14 +1,8 @@
 # For a given square matrix M this stores it's LU factorization, and allows for cheap column updates of M without recomputing the LU factorization by making use of the Sherman-Woodburry-Morrison update formula
 
-module Factorized
-
-export LUFactorized, replaceColumn!, A_ldiv_B!
-
 import Base.A_ldiv_B!
 
 using Base.LinAlg
-
-include("harmenView.jl")
 
 type LUFactorized{T}
   M::StridedMatrix{T}
@@ -86,7 +80,5 @@ function test(s, nrReplace)
     println("Relative error w.r.t. lu = ", norm(xlu - xfac) / norm(xlu))
 
   end
-
-end
 
 end

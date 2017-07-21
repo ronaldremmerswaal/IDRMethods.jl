@@ -5,9 +5,6 @@
 #   φ = ||H ϕ - e_1 ρ0||
 # This allows for short recurrences using either Givens rotations or Householder reflections.
 
-module BandedHessenberg
-
-include("harmenView.jl")
 abstract type AbstractBandedHessenberg{T} end
 
 export GivensBandedHessenberg, HHBandedHessenberg, addColumn!, apply!
@@ -79,6 +76,4 @@ function addColumn!{T}(H::GivensBandedHessenberg{T}, r::StridedVector{T})
   H.φ = -conj(H.givensRotations[end].s) * H.φ
 
   H.nrCols += 1
-end
-
 end
