@@ -101,7 +101,7 @@ function fqmrIDRs{T}(A, b::StridedVector{T}; s = 8, tol = sqrt(eps(real(T))), ma
   scale!(r0, one(T) / rho0)
   if hesOrth == :HH
     hes = HHBandedHessenberg(s + 1, rho0)
-  elseif hesOrth == "Givens"
+  elseif hesOrth == :Givens
     hes = GivensBandedHessenberg(s + 1, rho0)
   end
   idrSpace = FQMRSpace(A, P, r0, s, rho0, orthT, hes)

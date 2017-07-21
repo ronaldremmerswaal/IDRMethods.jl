@@ -35,7 +35,7 @@ type BiOProjector{T} <: Projector{T}
 end
 BiOProjector(n, s, R0, κ, T) = BiOProjector{T}(n, s, 0, zero(T), zero(T), eye(T, s), zeros(T, s), zeros(T, s), R0, κ)
 
-function biIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = qr(rand(size(b, 1), min(size(b, 1), s)))[1], kappa = 0.7, smoothing = "MR")
+function biIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1), x0 = [], P = Identity(), R0 = qr(rand(size(b, 1), min(size(b, 1), s)))[1], kappa = 0.7, smoothing = :MR)
 
   s = min(s, size(b, 1))
   if length(R0) > 0 && size(R0) != (length(b), s)
@@ -50,11 +50,11 @@ function biIDRs(A, b; s = 8, tol = sqrt(eps(real(eltype(b)))), maxIt = size(b, 1
   end
 
   rho0 = norm(r0)
-  if smoothing == "none"
+  if smoothing == :none
     solution = NormalSolution(x0, rho0, tol, r0)
-  elseif smoothing == "MR"
+  elseif smoothing == :MR
     solution = MRSmoothedSolution(x0, rho0, tol, r0)
-  elseif smoothing == "QMR"
+  elseif smoothing == :QMR
     solution = QMRSmoothedSolution(x0, rho0, tol, r0)
   end
 
