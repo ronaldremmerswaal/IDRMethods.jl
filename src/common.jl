@@ -143,7 +143,7 @@ end
 end
 
 # To ensure contiguous memory, we often have to split the projections in 2 blocks
-function skewProject!{T}(v::StridedVector{T}, G1::StridedMatrix{T}, G2::StridedMatrix{T}, R0::StridedMatrix{T}, lu, α, u, uIdx1, uIdx2, m, skewT::SkewType)
+function skewProject!{T}(v::StridedVector{T}, G1::StridedMatrix{T}, G2::StridedMatrix{T}, R0::StridedMatrix{T}, lu, α, u, uIdx1, uIdx2, m, skewT::SkewType{1})
   Ac_mul_B!(m, R0, v)
   A_ldiv_B!(α, lu, m)
 
