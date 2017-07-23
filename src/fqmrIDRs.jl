@@ -66,7 +66,7 @@ FQMRProjector(n, s, R0, κ, orthSearch, skewT, T) = FQMRProjector{T}(n, s, 0, ze
 #     "Flexible and multi‐shift induced dimension reduction algorithms for solving large sparse linear systems."
 #     Numerical Linear Algebra with Applications 22.1 (2015): 1-25.
 #
-function fqmrIDRs{T}(A, b::StridedVector{T}; s = 8, tol = sqrt(eps(real(T))), maxIt = size(b, 1), x0 = Vector{T}(), P = Identity(), R0 = Matrix{T}(0, 0), orthTol = eps(real(T)), orthSearch = false, kappa = 0.7, orth = :MGS, hesOrth = :HH, skewRepeat = 1, orthRepeat = 3, projDim = s)
+function fqmrIDRs{T}(A, b::StridedVector{T}; s = 8, tol = sqrt(eps(real(T))), maxIt = size(b, 1), x0 = Vector{T}(), P = Identity(), R0 = Matrix{T}(0, 0), orthTol = sqrt(size(A, 1)) * eps(real(T)), orthSearch = false, kappa = 0.7, orth = :MGS, hesOrth = :HH, skewRepeat = 1, orthRepeat = 1, projDim = s)
 
   if length(R0) > 0 && size(R0) != (length(b), projDim)
     error("size(R0) != [", length(b), ", $s] (User provided shadow residuals are of incorrect size)")
@@ -83,7 +83,7 @@ function fqmrIDRs{T}(A, b::StridedVector{T}; s = 8, tol = sqrt(eps(real(T))), ma
   end
 
   orthT = OrthType{orth}(one(real(T)) / √2, orthTol, orthRepeat)
-  skewT = SkewType{skewRepeat}(one(real(T)) / √2, orthTol, skewRepeat)
+  skewT = SkewType{skewRepeat > 1}(one(real(T)) / √2, orthTol, skewRepeat)
 
   rho0 = norm(r0)
   scale!(r0, one(T) / rho0)
@@ -178,7 +178,7 @@ function updateG!{T}(idr::FQMRSpace{T}, k)
 
   idr.r[:] = zero(T)
   if k < idr.s + 1
-    idr.r[end] = orthogonalize!(unsafe_view(idr.G, :, idr.latestIdx), unsafe_view(idr.G, :, 1 : k), unsafe_view(idr.r, idr.s + 3 - k : idr.s + 2), idr.orthT)
+    idr.r[end] = rep_orthogonalize!(unsafe_view(idr.G, :, idr.latestIdx), unsafe_view(idr.G, :, 1 : k), unsafe_view(idr.r, idr.s + 3 - k : idr.s + 2), idr.orthT)
   else
     idr.r[end] = norm(unsafe_view(idr.G, :, idr.latestIdx))
   end

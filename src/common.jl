@@ -84,42 +84,12 @@ function nextIDRSpace!{T}(proj::Projector, idr::IDRSpace{T})
 
 end
 
+# Orthogonalize g w.r.t. G, and store coeffs in h (NB g is not normalized)
 function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::OrthType{:CGS})
   Ac_mul_B!(h, G, g)
   gemv!('N', -one(T), G, h, one(T), g)
 
   return norm(g)
-end
-
-# Orthogonalize g w.r.t. G, and store coeffs in h (NB g is not normalized)
-function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::OrthType{:RCGS})
-  Ac_mul_B!(h, G, g)
-  # println(0, ", normG = ", norm(g), ", normH = ", norm(h))
-  gemv!('N', -one(T), G, h, one(T), g)
-
-  normG = norm(g)
-  normH = norm(h)
-
-  happy = normG < orthT.one * normH || normH < orthT.tol * normG
-  # println(1, ", normG = ", normG, ", normH = ", norm(G' * g))
-  if happy return normG end
-
-  for idx = 2 : orthT.maxRepeat
-    updateH = Vector(h)
-
-    Ac_mul_B!(updateH, G, g)
-    gemv!('N', -one(T), G, updateH, one(T), g)
-
-    axpy!(one(T), updateH, h)
-
-    normG = norm(g)
-    normH = norm(updateH)
-    # println(idx, ", normG = ", normG, ", normH = ", normH)
-    happy = normG < orthT.one * normH || normH < orthT.tol * normG
-    if happy break end
-  end
-
-  return normG
 end
 
 function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::OrthType{:MGS})
@@ -129,6 +99,30 @@ function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedV
   end
   return norm(g)
 end
+
+function rep_orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::OrthType)
+
+  normG = orthogonalize!(g, G, h, orthT)
+  if orthT.maxRepeat == 1
+    return normG
+  end
+
+  updateH = copy(h)
+
+  for rep = 2 : orthT.maxRepeat
+    normH = norm(updateH)
+
+    if normG < orthT.one * normH || normH < orthT.tol * normG
+      break
+    end
+
+    normG = orthogonalize!(g, G, updateH, orthT)
+    axpy!(one(T), updateH, h)
+  end
+
+  return normG
+end
+
 
 @inline function isConverged{T}(sol::Solution{T})
   return sol.ρ[end] < sol.tol * sol.rho0
@@ -143,7 +137,7 @@ end
 end
 
 # To ensure contiguous memory, we often have to split the projections in 2 blocks
-function skewProject!{T}(v::StridedVector{T}, G1::StridedMatrix{T}, G2::StridedMatrix{T}, R0::StridedMatrix{T}, lu, α, u, uIdx1, uIdx2, m, skewT::SkewType{1})
+function skewProject!{T}(v::StridedVector{T}, G1::StridedMatrix{T}, G2::StridedMatrix{T}, R0::StridedMatrix{T}, lu, α, u, uIdx1, uIdx2, m, skewT::SkewType{false})
   Ac_mul_B!(m, R0, v)
   A_ldiv_B!(α, lu, m)
 
@@ -152,7 +146,7 @@ function skewProject!{T}(v::StridedVector{T}, G1::StridedMatrix{T}, G2::StridedM
   gemv!('N', -one(T), G2, unsafe_view(u, length(uIdx1) + 1 : length(u)), one(T), v)
 end
 
-function skewProject!{T}(v::StridedVector{T}, G::StridedMatrix{T}, R0::StridedMatrix{T}, lu, α, u, uIdx, m, skewT::SkewType{1})
+function skewProject!{T}(v::StridedVector{T}, G::StridedMatrix{T}, R0::StridedMatrix{T}, lu, α, u, uIdx, m, skewT::SkewType{false})
   Ac_mul_B!(m, R0, v)
   A_ldiv_B!(α, lu, m)
 
@@ -161,7 +155,7 @@ function skewProject!{T}(v::StridedVector{T}, G::StridedMatrix{T}, R0::StridedMa
 end
 
 
-# function skewProject!(v, G1, G2, R0, lu, u, idx1, idx2, perm, m, skewT::RepeatSkew)
+# function skewProject!(v, G1, G2, R0, lu, u, idx1, idx2, perm, m, skewT::SkewType{true})
 #   Ac_mul_B!(m, R0, v)
 #   A_ldiv_B!(u, lu, m)
 #   u[:] = u[perm]
