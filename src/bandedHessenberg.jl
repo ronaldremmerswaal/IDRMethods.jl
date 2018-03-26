@@ -31,7 +31,7 @@ function addColumn!{T}(H::HHBandedHessenberg{T}, r::StridedVector{T})
   startIdx::Int64 = max(1, H.bandWidth + 1 - H.nrCols)
   applyProjections!(unsafe_view(r, startIdx : H.bandWidth + 1), unsafe_view(H.q, startIdx : H.bandWidth), unsafe_view(H.τ, startIdx : H.bandWidth))
 
-  H.τ[end] = conj(LinAlg.reflector!(unsafe_view(r, H.bandWidth + 1 : H.bandWidth + 2)))
+  H.τ[end] = conj(LinearAlgebra.reflector!(unsafe_view(r, H.bandWidth + 1 : H.bandWidth + 2)))
   H.q[end] = r[end]
 
   H.ϕ = (1. - H.τ[end]) * H.φ     # Solution update
@@ -44,14 +44,14 @@ end
 # Givens
 type GivensBandedHessenberg{T} <: AbstractBandedHessenberg{T}
   bandWidth::Int
-  givensRotations::Vector{LinAlg.Givens{T}}
+  givensRotations::Vector{LinearAlgebra.Givens{T}}
   ϕ::T
   φ::T
 
   nrCols::Int
 
 end
-GivensBandedHessenberg{T}(bandWidth, rho0::T) = GivensBandedHessenberg{T}(bandWidth, Vector{LinAlg.Givens{T}}(bandWidth + 1), zero(T), rho0, 0)
+GivensBandedHessenberg{T}(bandWidth, rho0::T) = GivensBandedHessenberg{T}(bandWidth, Vector{LinearAlgebra.Givens{T}}(bandWidth + 1), zero(T), rho0, 0)
 
 function applyProjections!{T}(r::StridedVector{T}, q::StridedVector{T}, τ::StridedVector{T})
   for (l, qVal) = enumerate(q)

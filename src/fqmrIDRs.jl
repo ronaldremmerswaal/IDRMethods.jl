@@ -212,9 +212,9 @@ end
 function updateW!{T}(idr::FQMRSpace{T}, proj::FQMRProjector{T}, k)
   oneOverR = one(T) / idr.r[end - 1]
   if proj.j ≥ 1
-    gemv!('N', -oneOverR, idr.W, idr.r[[idr.s + 2 - k : idr.s + 1; 1 : idr.s + 1 - k]], oneOverR, idr.vhat)
+    BLAS.gemv!('N', -oneOverR, idr.W, idr.r[[idr.s + 2 - k : idr.s + 1; 1 : idr.s + 1 - k]], oneOverR, idr.vhat)
   else
-    gemv!('N', -oneOverR, unsafe_view(idr.W, :, 1 : k), unsafe_view(idr.r, idr.s + 2 - k : idr.s + 1), oneOverR, idr.vhat)
+    BLAS.gemv!('N', -oneOverR, unsafe_view(idr.W, :, 1 : k), unsafe_view(idr.r, idr.s + 2 - k : idr.s + 1), oneOverR, idr.vhat)
   end
 
   copy!(unsafe_view(idr.W, :, idr.latestIdx), idr.vhat)

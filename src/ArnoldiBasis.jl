@@ -16,7 +16,7 @@ type ArnoldiHH{T} <: Arnoldi
   Qe1::StridedVector{T}   # Equals Q' * e1 * ρ0
   reduce::Bool
   ρ::Vector{T}
-  givensRot::Vector{LinAlg.Givens{T}}
+  givensRot::Vector{LinearAlgebra.Givens{T}}
 
   g::StridedVector{T}
 end
@@ -26,7 +26,7 @@ function ArnoldiHH{T}(A, r0::StridedVector{T}; s::Int = size(A, 1), reduce::Bool
   G[:, 1] = r0
 
   τ = Vector{T}(s)
-  τ[1] = LinAlg.reflector!(unsafe_view(G, :, 1))
+  τ[1] = LinearAlgebra.reflector!(unsafe_view(G, :, 1))
 
   Qe1 = zeros(T, s)
   Qe1[1] = G[1, 1]
@@ -73,7 +73,7 @@ function expand!{T}(arnold::ArnoldiHH{T}, g::StridedVector{T})
   arnold.latestIdx += 1
 
   # New reflection
-  arnold.τ[arnold.latestIdx] = LinAlg.reflector!(unsafe_view(arnold.G, arnold.latestIdx : size(arnold.G, 1), arnold.latestIdx))
+  arnold.τ[arnold.latestIdx] = LinearAlgebra.reflector!(unsafe_view(arnold.G, arnold.latestIdx : size(arnold.G, 1), arnold.latestIdx))
 
   if arnold.reduce
     # Apply previous Givens to new column
@@ -83,7 +83,7 @@ function expand!{T}(arnold::ArnoldiHH{T}, g::StridedVector{T})
 
     if arnold.latestIdx ≤ size(arnold.G, 1)
       # New Givens for Hessenberg matrix
-      φ, arnold.G[arnold.latestIdx - 1, arnold.latestIdx] = LinAlg.givens(unsafe_view(arnold.G, arnold.latestIdx - 1 : arnold.latestIdx, arnold.latestIdx), 1, 2)
+      φ, arnold.G[arnold.latestIdx - 1, arnold.latestIdx] = LinearAlgebra.givens(unsafe_view(arnold.G, arnold.latestIdx - 1 : arnold.latestIdx, arnold.latestIdx), 1, 2)
       push!(arnold.givensRot, φ)
 
       # Apply Givens to rhs of small system (Qe1)
@@ -175,7 +175,7 @@ end
 
   # ger
   A[1] -= vAj
-  LinAlg.axpy!(-vAj, unsafe_view(x, 2 : m), unsafe_view(A, 2 : m))
+  LinearAlgebra.axpy!(-vAj, unsafe_view(x, 2 : m), unsafe_view(A, 2 : m))
 
 end
 

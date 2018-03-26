@@ -1,3 +1,5 @@
+using LinearAlgebra
+
 type Identity end
 type Preconditioner end
 
@@ -87,7 +89,7 @@ end
 # Orthogonalize g w.r.t. G, and store coeffs in h (NB g is not normalized)
 function orthogonalize!{T}(g::StridedVector{T}, G::StridedMatrix{T}, h::StridedVector{T}, orthT::OrthType{:CGS})
   Ac_mul_B!(h, G, g)
-  gemv!('N', -one(T), G, h, one(T), g)
+  BLAS.gemv!('N', -one(T), G, h, one(T), g)
 
   return norm(g)
 end
@@ -142,8 +144,8 @@ function skewProject!{T}(v::StridedVector{T}, G1::StridedMatrix{T}, G2::StridedM
   A_ldiv_B!(α, lu, m)
 
   copy!(u, α[[uIdx1; uIdx2]])
-  gemv!('N', -one(T), G1, unsafe_view(u, 1 : length(uIdx1)), one(T), v)
-  gemv!('N', -one(T), G2, unsafe_view(u, length(uIdx1) + 1 : length(u)), one(T), v)
+  BLAS.gemv!('N', -one(T), G1, unsafe_view(u, 1 : length(uIdx1)), one(T), v)
+  BLAS.gemv!('N', -one(T), G2, unsafe_view(u, length(uIdx1) + 1 : length(u)), one(T), v)
 end
 
 function skewProject!{T}(v::StridedVector{T}, G::StridedMatrix{T}, R0::StridedMatrix{T}, lu, α, u, uIdx, m, skewT::SkewType{false})
@@ -151,7 +153,7 @@ function skewProject!{T}(v::StridedVector{T}, G::StridedMatrix{T}, R0::StridedMa
   A_ldiv_B!(α, lu, m)
 
   copy!(u, α[uIdx])
-  gemv!('N', -one(T), G, u, one(T), v)
+  BLAS.gemv!('N', -one(T), G, u, one(T), v)
 end
 
 
@@ -160,8 +162,8 @@ end
 #   A_ldiv_B!(u, lu, m)
 #   u[:] = u[perm]
 #
-#   gemv!('N', -1.0, G1, unsafe_view(u, idx1), 1.0, v)
-#   gemv!('N', -1.0, G2, unsafe_view(u, idx2), 1.0, v)
+#   BLAS.gemv!('N', -1.0, G1, unsafe_view(u, idx1), 1.0, v)
+#   BLAS.gemv!('N', -1.0, G2, unsafe_view(u, idx2), 1.0, v)
 #
 #   happy = norm(v) < skewT.one * norm(u)
 #
@@ -175,8 +177,8 @@ end
 #     A_ldiv_B!(uUpdate, lu, mUpdate)
 #     uUpdate[:] = uUpdate[perm]
 #
-#     gemv!('N', -1.0, G1, unsafe_view(uUpdate, idx1), 1.0, v)
-#     gemv!('N', -1.0, G2, unsafe_view(uUpdate, idx2), 1.0, v)
+#     BLAS.gemv!('N', -1.0, G1, unsafe_view(uUpdate, idx1), 1.0, v)
+#     BLAS.gemv!('N', -1.0, G2, unsafe_view(uUpdate, idx2), 1.0, v)
 #
 #     axpy!(1.0, mUpdate, m)
 #     axpy!(1.0, uUpdate, u)

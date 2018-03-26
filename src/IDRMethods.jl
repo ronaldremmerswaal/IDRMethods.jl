@@ -2,8 +2,7 @@ module IDRMethods
 
 export fqmrIDRs, biIDRs
 
-using Base.BLAS
-using Base.LinAlg
+using LinearAlgebra
 
 include("harmenView.jl")
 include("common.jl")

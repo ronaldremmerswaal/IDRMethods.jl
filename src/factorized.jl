@@ -2,7 +2,7 @@
 
 import Base.A_ldiv_B!
 
-using Base.LinAlg
+using LinearAlgebra
 
 type LUFactorized{T}
   M::StridedMatrix{T}
